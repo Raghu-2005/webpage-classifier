@@ -1,0 +1,64 @@
+# webpage_classifier / config / settings.yaml
+
+# Paths 
+paths:
+  training_csv:   "data/training_urls.csv"   # input CSV  (columns: url, label)
+  output_dir:     "output"                   # scraped training data
+  predicted_dir:  "predicted"                # prediction results
+  models_dir:     "models"                   # saved model artefacts
+  checkpoint:     "data/checkpoint.json"     # scrape / extract progress
+  mapping:        "data/mapping.json"        # url → folder metadata
+
+# Scraper
+scraper:
+  headless:            true
+  timeout_ms:          30000          # page load timeout (ms)
+  wait_after_load_ms:  4000          # extra wait after networkidle
+  max_retries:         3              # per-url retry attempts
+  retry_delay_s:       8             # seconds between retries
+  concurrency:         2             # parallel browser contexts
+  stealth:             true
+  # Human-like behaviour
+  random_delay_min_s:  1.0
+  random_delay_max_s:  3.5
+  viewport:
+    width:  1366
+    height: 768
+  user_agents:                        # rotated randomly
+    - "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    - "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+    - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+
+# Feature Extraction
+extraction:
+  min_text_length:    100             # chars; below this → url-pattern fallback
+  max_text_sample:    8000           # chars fed to NLP features
+  image_sample_limit: 50             # max <img> to analyse
+
+# Model
+model:
+  algorithm:        "xgboost"
+  test_size:        0.2
+  random_state:     42
+  cv_folds:         5
+  # XGBoost hyperparameters (tuned via GridSearchCV)
+  xgb_params:
+    n_estimators:     400
+    max_depth:        6
+    learning_rate:    0.05
+    subsample:        0.8
+    colsample_bytree: 0.8
+    use_label_encoder: false
+    eval_metric:      "mlogloss"
+    tree_method:      "hist"
+  # Class labels
+  classes:
+    - "list"
+    - "detail"
+    - "others"
+
+# Logging 
+logging:
+  level: "INFO"
+  file:  "logs/pipeline.log"

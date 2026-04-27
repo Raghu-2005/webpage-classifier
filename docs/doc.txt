@@ -1,0 +1,834 @@
+Webpage Classifier — Complete Technical Documentation
+
+Model: XGBoost (multi-class)  
+Classes: list | detail | others
+
+Table of Contents
+
+1. What This System Does
+This pipeline takes any webpage URL and classifies it into one of three types:
+- list — a page that shows multiple items where the user picks one
+- detail — a page about one specific thing (product, article, video, job)
+- others — neither dominates (homepage, login, about, dashboard)
+
+The classification uses the structure and content of the webpage as the primary signal. If content is unavailable (blocked page, empty HTML), it falls back to URL pattern analysis.
+
+2. The Three Classes — Definitions
+LIST (Listing Page)
+
+A listing page shows multiple items of the same type side by side. The user's job is to browse, filter, and pick one to go deeper on.
+
+What these pages have in common:
+- Many items repeating the same structure (cards, rows, tiles)
+- Pagination or "load more"
+- Filter sidebar (sort by, price range, category)
+- Result count text ("1,234 results found")
+- High link count with diverse anchor texts
+- URL contains: `/search`, `/category`, `/catalog`, `?q=`, `?page=`
+
+
+DETAIL (Detail Page)
+A detail page is about one specific entity. All content on the page serves to describe that one thing.
+
+What these pages have in common:
+- One clear subject (one product, one article, one video)
+- Exactly one H1 heading
+- Rich paragraphs with long text
+- Price, Buy button, Author, Publication date, Rating
+- Share buttons, Comments section
+- Related items section (but secondary to main content)
+- URL contains: `/product/`, `/article/`, `/watch?v=`, `/dp/`, numeric ID
+
+
+OTHERS (Other Pages)
+A page where neither listing nor detail dominates equally. These are typically utility, navigation, or brand pages.
+
+What these pages have in common:
+- Root domain URL (no deep path)
+- Mix of listing and detail signals at equal strength
+- Login/signup forms
+- OG type = "website"
+- No single dominant content type
+- Multiple CTAs for different things
+
+3. System Architecture
+
+training_urls.csv
+      │
+      ▼
+┌─────────────────┐
+│  scrape_run.py  │  ← Playwright + stealth scraping
+│  (Step 1)       │    Saves: raw.html, page.json
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ extract_run.py  │  ← Feature extraction (10 pillars)
+│  (Step 2)       │    Saves: features.json
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  train_run.py   │  ← XGBoost + GridSearchCV + SHAP
+│  (Step 3)       │    Saves: classifier.joblib, report
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ predict_run.py  │  ← Scrape + Extract + Predict any URL
+│  (Step 4)       │    Saves: prediction.json
+└─────────────────┘
+
+Checkpoint system: Every URL has a status (`pending`, `success`, `failed`, `skipped`) in `data/checkpoint.json`. Re-running any step only processes new/unprocessed URLs — already done URLs are never touched again.
+
+
+4. Classification Strategy
+The system uses a three-layer priority approach:
+
+Layer 1: Structure + Content features  ──▶  XGBoost model predicts
+              │
+              │ if confidence < 50% AND content is thin
+              ▼
+Layer 2: URL pattern features  ──▶  Rule-based URL prediction
+              │
+              │ if URL pattern also ambiguous
+              ▼
+Layer 3: Default to "others"
+
+
+Layer 1 is always attempted first** regardless of content availability. The model uses all 131 features including URL features, so even thin pages get a model-based prediction. Layer 2 only activates when BOTH confidence is low AND content is absent.
+
+---
+
+## 5. Scraping Approach
+
+### Technology
+- **Playwright** (Chromium) for full JavaScript rendering
+- **playwright-stealth** to remove headless browser fingerprints
+
+### Anti-Bot Techniques
+
+| Technique | What It Does |
+|---|---|
+| Stealth mode | Removes `navigator.webdriver`, plugins, permissions fingerprints |
+| JS injection | Overrides `navigator.webdriver = undefined` at page init |
+| Rotating User-Agents | 4 different Chrome UA strings (Linux, Windows, Mac) |
+| Random viewport | Width/height randomized ±50px per request |
+| Human mouse simulation | 2–5 random mouse moves per page |
+| Gradual scroll | Scrolls down in 3–7 steps, then partially back up |
+| Random delays | 1.0–3.5 seconds between requests (configurable) |
+| Resource blocking | Blocks fonts, video, audio files (speeds up + reduces fingerprint) |
+| Locale spoofing | `en-US`, `America/New_York` timezone |
+| Extra headers | Accept-Language, DNT, Upgrade-Insecure-Requests |
+
+### Block Detection
+
+The scraper checks the first 3,000 chars of HTML + page title for these signals:
+```
+"cf-browser-verification", "challenge-form", "cf_clearance",
+"ray id", "just a moment", "ddos-guard",
+"please verify you are a human", "access denied",
+"403 forbidden", "captcha", "enable javascript",
+"checking your browser", "security check",
+"bot detection", "are you a robot"
+```
+
+If detected → exponential backoff retry (delay × attempt × random 1–2x).
+
+### Retry Logic
+- Max 3 attempts per URL
+- Delay between retries: `retry_delay × attempt_number`
+- After 3 failures → marked as `failed` in checkpoint, skipped forever
+
+### HTML Output
+The saved `raw.html` has all external CSS **inlined as a `<style>` block** so you can open it in a browser offline and see the page exactly as it was scraped.
+
+### Concurrency
+3 parallel browser contexts by default (configurable in `settings.yaml`). Each context has its own User-Agent, viewport, and locale.
+
+---
+
+## 6. Feature Extraction — All 10 Pillars
+
+Features are extracted from the **parsed HTML** (BeautifulSoup with lxml) after stripping all `<script>`, `<style>`, and `<noscript>` tags from body text.
+
+---
+
+### Pillar 1 — Structural Features (19 features)
+
+Captures the **shape of the DOM** — what HTML elements exist, how many, and how they relate. Listing pages have wider, flatter DOMs with repetition. Detail pages have deeper, more hierarchical DOMs.
+
+| Feature | Type | Description | List signal | Detail signal |
+|---|---|---|---|---|
+| `tag_div_count` | int | Number of `<div>` tags | high | medium |
+| `tag_section_count` | int | Number of `<section>` tags | medium | medium |
+| `tag_article_count` | int | Number of `<article>` tags | low | high |
+| `tag_ul_count` | int | Number of `<ul>` tags | high | medium |
+| `tag_ol_count` | int | Number of `<ol>` tags | medium | medium |
+| `tag_li_count` | int | Number of `<li>` tags | high | low |
+| `tag_table_count` | int | Number of `<table>` tags | varies | high |
+| `tag_tr_count` | int | Number of `<tr>` tags | varies | high |
+| `tag_td_count` | int | Number of `<td>` tags | varies | high |
+| `tag_span_count` | int | Number of `<span>` tags | high | medium |
+| `tag_p_count` | int | Number of `<p>` tags | low | high |
+| `tag_h1_count` | int | Number of `<h1>` tags | low | high (=1) |
+| `tag_h2_count` | int | Number of `<h2>` tags | low | high |
+| `tag_h3_count` | int | Number of `<h3>` tags | medium | high |
+| `tag_h4_count` | int | Number of `<h4>` tags | low | medium |
+| `tag_aside_count` | int | Number of `<aside>` tags | medium | medium |
+| `tag_nav_count` | int | Number of `<nav>` tags | medium | low |
+| `tag_header_count` | int | Number of `<header>` tags | medium | medium |
+| `tag_footer_count` | int | Number of `<footer>` tags | medium | medium |
+| `tag_main_count` | int | Number of `<main>` tags | low | high |
+| `li_density` | float | `li_count / total_tags` — high = many list items | high | low |
+| `article_section_ratio` | float | `article_count / (section_count+1)` | low | high |
+| `dom_max_depth` | int | Maximum nesting depth of DOM tree | low | high |
+| `has_data_table` | 0/1 | Has `<table>` with >6 `<td>` cells | low | high |
+| `grid_class_count` | int | Elements with CSS classes like `card`, `tile`, `product-item`, `result-item` | high | low |
+| `has_grid_layout` | 0/1 | `grid_class_count >= 3` | high | low |
+
+**Why `li_density` matters:** A listing page like Amazon search has hundreds of `<li>` items (each product card). A Wikipedia article has very few. This ratio normalizes for page size.
+
+**Why `grid_class_count` matters:** Developers name CSS classes based on function. Classes like `product-card`, `result-item`, `job-item` directly reveal that elements are items in a list.
+
+---
+
+### Pillar 2 — Link Features (8 features)
+
+Captures the **link ecosystem** of the page. Listing pages have many diverse outbound links (one per item). Detail pages have fewer, more focused links.
+
+| Feature | Type | Description | List signal | Detail signal |
+|---|---|---|---|---|
+| `total_links` | int | Total `<a href>` count | very high | medium |
+| `log_total_links` | float | `log(total_links + 1)` — dampens outliers | high | low |
+| `internal_links` | int | Links to same domain | high | medium |
+| `external_links` | int | Links to other domains | medium | low |
+| `nav_links` | int | Links inside `<nav>` element | medium | medium |
+| `content_links` | int | `internal_links - nav_links` (non-nav internal) | high | medium |
+| `external_link_ratio` | float | `external / total` | low | high (articles cite sources) |
+| `anchor_text_diversity` | float | `unique_anchor_texts / total_links` — high = each link goes somewhere different | high | low |
+| `link_to_word_ratio` | float | `links / word_count` — high = link-heavy page | high | low |
+
+**Why `anchor_text_diversity` is the #1 listing signal:** On a product listing, each link says "Apple iPhone 15 Pro", "Samsung Galaxy S24", "Google Pixel 8" — all unique. On a detail page, links say "click here", "read more", "back to top" — repetitive. High diversity = user is browsing a catalog of distinct items.
+
+**Why `external_link_ratio` leans detail:** Wikipedia articles, academic papers, and news articles cite many external sources. Listing pages mostly link internally (to product detail pages within the same domain).
+
+---
+
+### Pillar 3 — Content Features (14 features)
+
+Captures the **depth and richness of text content**. Detail pages have concentrated, long-form text about one topic. Listing pages have sparse text per item.
+
+| Feature | Type | Description | List signal | Detail signal |
+|---|---|---|---|---|
+| `word_count` | int | Total word count of body text | low | high |
+| `log_word_count` | float | `log(word_count + 1)` | low | high |
+| `char_count` | int | Total character count | low | high |
+| `h1_count` | int | Number of H1 headings | varies | high (=1) |
+| `h2_count` | int | Number of H2 headings | low | high |
+| `h3_count` | int | Number of H3 headings | medium | high |
+| `h4_count` | int | Number of H4 headings | low | medium |
+| `heading_hierarchy_score` | int | `h1×4 + h2×3 + h3×2 + h4×1` — weighted heading count | low | high |
+| `single_h1` | 0/1 | Exactly one H1 — the page is "about" one thing | low | very high |
+| `rich_paragraph_count` | int | `<p>` tags with >40 chars of text | low | high |
+| `log_rich_paragraph_count` | float | `log(rich_paragraph_count + 1)` | low | high |
+| `avg_paragraph_length` | float | Average chars per rich paragraph | low | high |
+| `deep_content_blocks` | int | `<article>`, `<main>`, `<section>` with >200 chars text | low | high |
+| `has_main_content_element` | 0/1 | Page has `<main>` tag | low | high |
+| `has_article_element` | 0/1 | Page has `<article>` tag | low | high |
+| `text_concentration_ratio` | float | Ratio: largest div's text / total text — high = text focused in one area | low | high |
+
+**Why `single_h1` is so powerful:** The HTML spec says one H1 per page = the page's main topic. Product pages have "Apple iPhone 15 Pro 128GB". Article pages have "Introduction to Machine Learning". Listing pages either have no H1 or have one that says "Search Results" (which isn't the entity itself).
+
+**Why `text_concentration_ratio` matters:** On a detail page like a Wikipedia article, 90% of the text lives in one `<div class="mw-body-content">`. On a listing page, text is spread across 50 product cards. High concentration = detail page.
+
+**Why `avg_paragraph_length` matters:** Detail pages have paragraphs of 200–500 chars (actual sentences). Listing pages have paragraphs of 10–30 chars (product names, prices). This single feature is in the top 10 by SHAP importance.
+
+---
+
+### Pillar 4 — Media Features (9 features)
+
+Captures the **role of images and video**. Both page types have images, but their nature differs — listing pages have thumbnail grids, detail pages have hero images with descriptive alt text.
+
+| Feature | Type | Description | List signal | Detail signal |
+|---|---|---|---|---|
+| `image_count` | int | Total `<img>` count | high (thumbnails) | medium (hero) |
+| `log_image_count` | float | `log(image_count + 1)` | high | medium |
+| `images_with_alt` | int | Images with non-empty alt text | medium | high |
+| `alt_text_ratio` | float | `images_with_alt / total_images` | low | high |
+| `gallery_image_count` | int | Images with class names like `gallery`, `carousel`, `thumbnail`, `product-image` | high | low |
+| `has_image_gallery` | 0/1 | `gallery_image_count >= 3` | high | low |
+| `has_video` | 0/1 | Page contains `<video>` or `<iframe>` | low | high |
+| `figure_count` | int | Number of `<figure>` elements | low | high |
+| `figcaption_count` | int | Number of `<figcaption>` elements | low | high |
+
+**Why `alt_text_ratio` leans detail:** Product detail pages carefully write descriptive alt text like "Apple iPhone 15 Pro in Natural Titanium, showing rear camera system". Listing pages use generic alt text like "product image" or empty alt attributes. High ratio = someone wrote careful image descriptions = detail page.
+
+**Why `figure_count` leans detail:** Editorial articles and documentation use `<figure>` + `<figcaption>` for charts, diagrams, and code illustrations. This is a strong signal for long-form content.
+
+---
+
+### Pillar 5 — Listing-Specific Features (7 features)
+
+Directly detects the **UI patterns that only exist on listing pages** — pagination, filters, result counts, repeated card structures.
+
+| Feature | Type | Description | Why it matters |
+|---|---|---|---|
+| `has_pagination` | 0/1 | Detects "page 2 of 10", "next page", "load more", pagination CSS classes, aria-label=pagination | Only listing pages need pagination — you're browsing a set of items |
+| `has_filter_ui` | 0/1 | Detects filter/facet/sort-by UI (CSS classes, IDs, or text) | Filters only make sense when there are multiple items to narrow down |
+| `has_result_count` | 0/1 | Detects "123 results", "45 jobs found", "12 matches" via regex | Direct declaration that the page is showing multiple results |
+| `repeated_sibling_containers` | int | Containers (`ul`, `ol`, `div`, `section`) with 4+ direct children of the same tag | The DOM structure of a listing: `<ul><li>item</li><li>item</li><li>item</li></ul>` |
+| `has_repeated_blocks` | 0/1 | `repeated_sibling_containers >= 2` | |
+| `has_compare_checkboxes` | 0/1 | `<input type="checkbox">` × 3 or more | Comparison checkboxes are a listing-exclusive pattern |
+| `breadcrumb_depth` | int | Number of steps in the breadcrumb trail | Shallow breadcrumb = listing (Home > Laptops); deep = detail (Home > Laptops > Apple > MacBook Pro 14") |
+| `has_breadcrumb` | 0/1 | Breadcrumb exists at all | |
+
+**Why `has_repeated_blocks` is the most direct listing signal:** If a container has 8 children all using the same HTML tag, it's almost certainly a list of items. Amazon's product grid is `<div class="s-result-list"><div class="s-result-item">...</div> × 60</div>`. Nothing else creates that structure.
+
+**Why `breadcrumb_depth` discriminates:** A 2-level breadcrumb (Home > Laptops) means you're at a category page — listing. A 4-level breadcrumb (Home > Laptops > Apple > MacBook Pro 14") means you drilled down to a specific item — detail. The depth itself is the signal.
+
+---
+
+### Pillar 6 — Detail-Specific Features (20 features)
+
+Directly detects the **content patterns that only exist on detail pages** — purchase signals, authorship, temporal signals, media-specific patterns.
+
+| Feature | Type | Description | Why it matters |
+|---|---|---|---|
+| `has_price` | 0/1 | Detects price with currency symbols ($, €, £, ¥, ₹, USD, EUR, GBP) | Only product/service detail pages show the price of the specific thing |
+| `price_mention_count` | int | How many price-like strings appear (capped at 20) | |
+| `has_buy_cta` | 0/1 | Detects "add to cart", "buy now", "add to bag", "purchase", "order now", "book now", "apply now" | Purchase CTA = you found the specific item, not a list |
+| `has_author` | 0/1 | Detects "by", "author:", "written by", "posted by", "reviewed by" | Only individual articles/posts have a byline |
+| `has_publish_date` | 0/1 | Detects date patterns, `<time>` tags, `datetime` attributes | Published date = single content item |
+| `has_rating` | 0/1 | Detects "4.5/5", "3 stars", "rating", "reviews" | Rating belongs to one product/place/service |
+| `has_toc` | 0/1 | Detects "Table of Contents", TOC CSS classes/IDs | Long-form articles and documentation only |
+| `internal_anchor_links` | int | `<a href="#section">` count | TOC-style navigation within a single long page |
+| `has_internal_anchors` | 0/1 | `internal_anchor_links >= 3` | |
+| `has_spec_section` | 0/1 | Detects "specification", "spec", "dimensions", "weight", "material", "ingredients", "requirements" | Product specs = product detail page |
+| `has_share_buttons` | 0/1 | Detects "share", "tweet", "facebook", "linkedin", "whatsapp" | You share articles and products, not category pages |
+| `has_comments_section` | 0/1 | Detects "comment", "reply", "discussion", "disqus" | Comments belong to single posts/articles/videos |
+| `has_related_section` | 0/1 | Detects "related", "similar", "you may also like", "recommended" | "Related products" appears on detail pages to upsell |
+| `og_type_is_video` | 0/1 | `og:type` contains "video" | Strongest video detail signal — set by site explicitly |
+| `has_twitter_player` | 0/1 | `twitter:card = player` | Twitter player card = single playable media item |
+| `has_duration_meta` | 0/1 | Detects `video:duration`, `music:duration`, `itemprop=duration`, or "duration: XX" text | Duration belongs to one specific media item |
+| `url_signals_single_item` | 0/1 | URL contains `?v=`, `/watch`, `/item/`, `/dp/`, `/post/`, `/article/`, `/job/`, `/event/`, `/recipe/`, `/shorts/` | URL structure directly indicates single-item page |
+| `has_engagement_metrics` | 0/1 | Detects "1.2M views", "43K likes", "subscribers" | Engagement metrics appear on individual video/social pages |
+
+**Why `has_buy_cta` is the strongest ecommerce detail signal (weight = 3 in composite):** No listing page has an "Add to Cart" button because you haven't chosen your item yet. The moment that button appears, you're on a detail page. This single feature correctly classifies almost all ecommerce detail pages.
+
+**Why `og_type_is_video` has weight = 4 in composite:** This was added to fix the YouTube watch page problem. When a site sets `og:type = "video.other"` or `"video.episode"`, it is explicitly declaring in the page metadata that this page is about one specific video. The recommended videos sidebar is irrelevant — the metadata says detail.
+
+---
+
+### Pillar 7 — Interaction Features (6 features)
+
+Captures **UI controls** on the page. The nature of interactive elements reveals page intent.
+
+| Feature | Type | Description | Signals |
+|---|---|---|---|
+| `form_count` | int | Number of `<form>` elements | High = others (contact, login, search) |
+| `has_search_form` | 0/1 | Search input or search placeholder detected | Others or listing |
+| `has_login_form` | 0/1 | Password input field present | Very strong others signal |
+| `button_count` | int | Number of `<button>` elements | High detail = buy/submit; high listing = filters |
+| `select_count` | int | Number of `<select>` dropdowns | High = listing (sort by, filter) |
+| `range_input_count` | int | `<input type="range">` count | Price range sliders = listing |
+| `has_tabs` | 0/1 | `role="tablist"` or tab CSS classes | Detail (product specs/reviews tabs) or others |
+
+**Why `has_login_form` is a strong others signal:** Login/signup pages are neither listing nor detail — they're utility pages. A page with a password field is almost never a product listing or article.
+
+**Why `select_count` leans listing:** Sort-by dropdowns ("Sort by: Price Low to High"), category selects, "Items per page" selects — these only make sense when you have multiple items to sort/filter.
+
+---
+
+### Pillar 8 — Metadata / SEO Features (9 features)
+
+Reads the **machine-readable metadata** that sites embed for search engines and social sharing. This metadata is often more reliable than content scraping because developers set it intentionally.
+
+| Feature | Type | Description | Signals |
+|---|---|---|---|
+| `og_type_is_article` | 0/1 | `og:type = "article"` | Very strong detail (editorial/blog) |
+| `og_type_is_product` | 0/1 | `og:type = "product"` | Very strong detail (ecommerce) |
+| `og_type_is_website` | 0/1 | `og:type = "website"` or empty | Others signal |
+| `has_twitter_summary_large` | 0/1 | `twitter:card = "summary_large_image"` | Detail (article/product with featured image) |
+| `has_schema_list_type` | 0/1 | Schema.org type is `ItemList`, `SearchResultsPage`, `CollectionPage`, `OffersCatalog` | Direct listing declaration |
+| `has_schema_detail_type` | 0/1 | Schema.org type is `Product`, `Article`, `NewsArticle`, `Recipe`, `JobPosting`, `Event`, `Movie`, `Book`, `Person`, `HowTo`, `FAQPage`, etc. | Direct detail declaration |
+| `schema_type_count` | int | How many Schema.org types are declared | Rich structured data = detail |
+| `has_microdata` | 0/1 | `itemtype` attributes present (older Schema format) | Detail signal |
+| `has_canonical` | 0/1 | `<link rel="canonical">` present | SEO best practice, common on content pages |
+| `robots_noindex` | 0/1 | Page says "don't index me" | Could indicate login/utility page = others |
+| `page_lang_is_english` | 0/1 | `<html lang="en*">` | General quality signal |
+
+**Why Schema.org types are the most reliable signals:** Developers add Schema.org JSON-LD to tell Google exactly what their page is about. `@type: "Product"` means it's a product detail page with certainty. `@type: "ItemList"` means it's a listing. This is developer-declared ground truth — when it's present, it almost always overrides other signals.
+
+**Schema.org types classified as LIST:**
+`SearchResultsPage`, `ItemList`, `CollectionPage`, `ProductCollection`, `OffersCatalog`, `BreadcrumbList`
+
+**Schema.org types classified as DETAIL:**
+`Product`, `Article`, `NewsArticle`, `BlogPosting`, `Recipe`, `JobPosting`, `Event`, `Movie`, `Book`, `Person`, `Organization`, `Hotel`, `Restaurant`, `LocalBusiness`, `MedicalCondition`, `HowTo`, `FAQPage`, `ProfilePage`
+
+---
+
+### Pillar 9 — Semantic / NLP Features (10 features)
+
+Lightweight **keyword-based text analysis** — no heavy NLP models, just curated word sets and pattern matching. Fast and interpretable.
+
+| Feature | Type | Description | Signals |
+|---|---|---|---|
+| `list_cue_word_hits` | int | How many listing keywords appear in page text | High = listing |
+| `detail_cue_word_hits` | int | How many detail keywords appear in page text | High = detail |
+| `list_vs_detail_cue_ratio` | float | `list_hits / (detail_hits + 1)` | >1 = listing leaning |
+| `detail_vs_list_cue_ratio` | float | `detail_hits / (list_hits + 1)` | >1 = detail leaning |
+| `numeric_token_density` | float | Ratio of number-like tokens in text | High = price lists or result counts |
+| `title_word_count` | int | Number of words in page `<title>` | Long title = detail article |
+| `title_has_list_cue` | 0/1 | Title contains listing keywords | Direct signal |
+| `title_has_detail_cue` | 0/1 | Title contains detail keywords | Direct signal |
+| `title_has_question` | 0/1 | Title contains "?" | FAQ / How-to = detail |
+| `title_has_count_in_parens` | 0/1 | Title contains "(324)" style count | Strong listing signal e.g. "Laptops (1,234)" |
+
+**Listing cue words used:**
+`results, listings, search, browse, catalog, catalogue, index, directory, archive, collection, products, items, articles, posts, jobs, properties, recipes, hotels, filter, sort, showing, found, per page, load more, next page, previous, pagination, view all, see all, compare, grid, list view, refine`
+
+**Detail cue words used:**
+`description, overview, specification, specifications, details, about, summary, biography, profile, review, reviews, rating, price, buy, add to cart, purchase, order, in stock, availability, published, author, posted, last updated, share, comment, reply, related, table of contents, introduction, conclusion, references, ingredients, instructions, how to, step, method, salary, experience, requirements, responsibilities`
+
+**Why `title_word_count` is the #1 most important feature (SHAP rank 1):** This is counterintuitive but makes total sense on reflection:
+- Listing page titles: "Laptops" (1 word), "Search Results" (2 words), "Jobs in London" (3 words)
+- Detail page titles: "Apple MacBook Pro 14-inch M3 Pro Chip 18GB Memory Review 2024" (11 words)
+- Others page titles: "Zoho — Online Productivity Tools & SaaS Applications for Businesses" (9 words)
+
+Short titles = category pages. Long titles = specific item or article. This one number is remarkably discriminative.
+
+**Why `numeric_token_density` is #2 (SHAP rank 2):** Listing pages are full of numbers — prices ($999, $1,299, $449), ratings (4.5, 3.8, 4.1), counts (324 results), IDs. The density of numeric tokens in the text is much higher on listing pages where prices and stats repeat across many items.
+
+---
+
+### Pillar 10 — URL Pattern Features (12 features)
+
+Analyzes the **URL structure** as a secondary signal. Used in the model AND as fallback when content is unavailable.
+
+| Feature | Type | Description | Signals |
+|---|---|---|---|
+| `url_path_depth` | int | Number of path segments (`/a/b/c` = 3) | Deep = detail |
+| `url_has_query_params` | 0/1 | URL contains `?param=value` | Listing (search/filter params) or others |
+| `url_query_param_count` | int | Number of query parameters | High = complex search = listing |
+| `url_has_numeric_id` | 0/1 | Path contains 3+ digit number (e.g. `/product/12345`) | Strong detail signal |
+| `url_has_long_slug` | 0/1 | Path segment matches `word-word-word` pattern | Detail article slug |
+| `url_slug_word_count` | int | Max hyphen-separated word count in path segment | Higher = more descriptive slug = detail |
+| `url_list_token_match` | 0/1 | Path contains: search, results, catalog, category, products, listings, browse, archive, tag, shop, store, jobs, hotels, recipes, articles, news, blog | Direct listing URL signal |
+| `url_detail_token_match` | 0/1 | Path contains: product, item, article, post, property, job, hotel, recipe, profile, detail, view, show, read, watch, event | Direct detail URL signal |
+| `url_has_extension` | 0/1 | Last path segment has a file extension | Varies |
+| `url_is_root` | 0/1 | Path is `/` or empty | Strong others signal (homepage) |
+| `url_has_search_param` | 0/1 | Query contains `q`, `query`, `search`, `keyword`, `s`, `find` | Strong listing signal |
+| `url_has_filter_param` | 0/1 | Query contains `filter`, `sort`, `order`, `page`, `offset`, `limit` | Strong listing signal |
+| `url_has_page_param` | 0/1 | URL contains `page=N` | Strong listing signal (pagination) |
+
+**URL pattern examples:**
+
+```
+https://amazon.com/s?k=laptop          → url_has_search_param=1, url_list_token_match=1  → LIST
+https://amazon.com/dp/B09V3KXJPB       → url_has_numeric_id=1, url_detail_token_match=0  → DETAIL
+https://google.com/                    → url_is_root=1                                   → OTHERS
+https://jobs.com/software-engineer     → url_has_long_slug=1, url_detail_token_match=1   → DETAIL
+https://news.ycombinator.com/          → url_is_root=1                                   → OTHERS
+https://en.wikipedia.org/wiki/Python   → url_path_depth=2, url_has_long_slug=1           → DETAIL
+```
+
+---
+
+## 7. Composite Scoring
+
+Three derived scores summarize the evidence across all pillars into single numbers. These are themselves model input features — one of the top 10 by SHAP importance.
+
+### Composite Listing Score
+```
+= has_pagination × 3
++ has_filter_ui × 2
++ has_result_count × 2
++ has_repeated_blocks × 2
++ grid_class_count × 0.05
++ url_list_token_match × 1
++ has_schema_list_type × 2
++ list_cue_word_hits × 0.3
++ url_has_filter_param × 1
++ url_has_page_param × 1
++ title_has_list_cue × 1
+```
+Higher = more listing-like. Maximum possible: ~20+
+
+### Composite Detail Score
+```
+= has_buy_cta × 3
++ has_price × 2
++ has_author × 2
++ has_publish_date × 2
++ has_toc × 2
++ single_h1 × 2
++ has_spec_section × 2
++ has_rating × 1
++ url_detail_token_match × 1
++ has_schema_detail_type × 2
++ detail_cue_word_hits × 0.3
++ url_has_numeric_id × 1
++ url_has_long_slug × 1
++ has_share_buttons × 1
++ has_comments_section × 1
++ og_type_is_video × 4          ← video detail signal
++ has_twitter_player × 3        ← media detail signal
++ has_duration_meta × 2         ← timed media signal
++ url_signals_single_item × 2   ← single item URL
++ has_engagement_metrics × 1    ← views/likes
+```
+Higher = more detail-like. Maximum possible: ~35+
+
+### Composite Others Score
+```
+= max(0, 5 - |listing_score - detail_score|) × 0.5
++ og_type_is_website × 1
++ has_login_form × 1
++ url_is_root × 2
+```
+High when listing and detail signals are roughly equal AND has homepage/utility signals.
+
+---
+
+## 8. Most Important Features
+
+Based on SHAP (SHapley Additive exPlanations) values from your trained model:
+
+| Rank | Feature | Pillar | Why It's Important |
+|---|---|---|---|
+| 1 | `title_word_count` | Semantic | Short titles = category pages; long = specific items |
+| 2 | `numeric_token_density` | Semantic | Price-heavy listing pages vs text-heavy detail pages |
+| 3 | `composite_others_score` | Composite | Balanced signal detector for homepage/utility pages |
+| 4 | `composite_listing_score` | Composite | Aggregated listing evidence |
+| 5 | `url_path_depth` | URL | Root/shallow = others; deep = detail |
+| 6 | `link_to_word_ratio` | Link | Link-dense = listing; text-dense = detail |
+| 7 | `avg_paragraph_length` | Content | Short paragraphs = item cards; long = article |
+| 8 | `word_count` | Content | Low = listing snippets; high = full article |
+| 9 | `external_link_ratio` | Link | Articles cite external sources heavily |
+| 10 | `anchor_text_diversity` | Link | Each listing item has a unique link = high diversity |
+| 11 | `tag_h3_count` | Structural | Articles have many sub-headings |
+| 12 | `composite_detail_score` | Composite | Aggregated detail evidence |
+| 13 | `tag_p_count` | Structural | Paragraphs = article content |
+| 14 | `char_count` | Content | Raw text volume |
+| 15 | `internal_anchor_links` | Detail | TOC-style navigation = long article |
+| 16 | `images_with_alt` | Media | Careful alt text = editorial/product page |
+| 17 | `li_density` | Structural | List-heavy = listing page DOM |
+| 18 | `external_links` | Link | Academic/news articles cite many sources |
+| 19 | `detail_vs_list_cue_ratio` | Semantic | Ratio of detail vs listing vocabulary |
+| 20 | `tag_h2_count` | Structural | Section headings = article structure |
+
+---
+
+## 9. How Each Class Gets Classified
+
+### How a LIST page gets identified
+
+The model sees a convergence of evidence from multiple pillars:
+
+1. **DOM structure:** High `li_count`, `grid_class_count`, `repeated_sibling_containers` — the page is built from repeating blocks
+2. **Link profile:** Very high `total_links`, high `anchor_text_diversity` — each item has a unique link
+3. **Content:** Low `word_count`, low `avg_paragraph_length`, low `single_h1` — no deep text per item
+4. **Listing UI:** `has_pagination=1`, `has_filter_ui=1`, `has_result_count=1` — explicit listing controls
+5. **URL:** `url_list_token_match=1`, `url_has_search_param=1`, `url_has_page_param=1`
+6. **Semantic:** High `list_cue_word_hits`, short `title_word_count`
+7. **Metadata:** `has_schema_list_type=1` (when site adds Schema.org)
+8. **Composite:** High `composite_listing_score`
+
+Even without all these signals, XGBoost triangulates. A page can have no pagination but still be classified as listing if it has high anchor diversity + repeated blocks + short paragraphs.
+
+### How a DETAIL page gets identified
+
+1. **Content:** High `word_count`, high `avg_paragraph_length`, `single_h1=1`, many `rich_paragraph_count` — substantial text about one thing
+2. **Detail signals:** `has_price=1`, `has_buy_cta=1` (ecommerce) OR `has_author=1`, `has_publish_date=1` (editorial) OR `og_type_is_video=1` (media)
+3. **DOM structure:** Low `li_density`, `has_article_element=1`, `has_main_content_element=1`
+4. **Link profile:** Lower `total_links`, high `external_link_ratio` (articles cite sources)
+5. **URL:** `url_has_numeric_id=1` OR `url_has_long_slug=1` OR `url_signals_single_item=1`
+6. **Metadata:** `has_schema_detail_type=1`, `og_type_is_article=1` or `og_type_is_product=1`
+7. **Media:** High `alt_text_ratio`, `figcaption_count` (editorial images)
+8. **Composite:** High `composite_detail_score`
+
+The model does NOT require all signals. An ecommerce product page without an author date still gets classified as detail because of `has_buy_cta + has_price + has_spec_section + single_h1`.
+
+### How an OTHERS page gets identified
+
+Others is the residual class — pages that don't fire listing or detail signals strongly:
+
+1. **Balanced scores:** `composite_listing_score` and `composite_detail_score` are both low, or roughly equal
+2. **Root URL:** `url_is_root=1` — homepage
+3. **Homepage metadata:** `og_type_is_website=1`
+4. **Login/utility signals:** `has_login_form=1`, `url_is_root=1`
+5. **Mixed content:** Neither `has_repeated_blocks` nor `has_buy_cta` + `has_author` firing
+6. **Short/thin content:** Low `word_count`, low `title_word_count` for some others
+7. **Composite:** `composite_others_score` elevated
+
+**Others is the hardest class** (F1 = 0.769 in current model, vs 0.943 for detail and 0.964 for list). The challenge is that "others" is defined by what it's NOT rather than a clear positive identity. Adding more "others" training samples with diverse types (login pages, error pages, about pages, dashboards) improves this class the most.
+
+---
+
+## 10. The ML Model
+
+### Algorithm: XGBoost (eXtreme Gradient Boosting)
+
+XGBoost was chosen because:
+- Handles mixed feature types naturally (binary 0/1 flags + continuous ratios + counts)
+- No feature scaling needed
+- Built-in handling of missing/zero values
+- Fast inference (milliseconds per prediction)
+- SHAP support for explainability
+- Robust to noisy features — unimportant features are simply ignored
+- Proven best-in-class for tabular classification problems
+
+### Training Process
+
+1. Load all `features.json` files where both `scrape_status=success` AND `extract_status=success`
+2. Build DataFrame — 126 numeric feature columns + label column
+3. 80/20 train/test split with stratification (preserves class balance)
+4. `GridSearchCV` with 5-fold cross-validation over:
+   - `max_depth`: [4, 6, 8]
+   - `learning_rate`: [0.05, 0.1]
+   - `n_estimators`: [200, 400]
+   - `subsample`: [0.8, 1.0]
+   - `colsample_bytree`: [0.8, 1.0]
+5. Best model selected by macro F1 score
+6. Final evaluation on held-out test set
+7. SHAP TreeExplainer computes feature importance
+
+### Best Parameters Found (your run)
+```
+max_depth=4, learning_rate=0.1, n_estimators=400,
+subsample=1.0, colsample_bytree=1.0
+Best CV F1-macro: 0.8723
+```
+
+### Current Performance
+
+| Class | Precision | Recall | F1 | Support |
+|---|---|---|---|---|
+| detail | 0.904 | 0.987 | 0.943 | 76 |
+| list | 0.985 | 0.943 | 0.964 | 70 |
+| others | 0.909 | 0.667 | 0.769 | 15 |
+| **macro avg** | **0.933** | **0.865** | **0.892** | — |
+
+### Saved Model Artefacts
+
+| File | Contents |
+|---|---|
+| `models/classifier.joblib` | Trained XGBoost model |
+| `models/label_encoder.joblib` | Maps list/detail/others ↔ 0/1/2 |
+| `models/feature_columns.json` | Exact list of 126 features used at training time |
+| `models/feature_importance.json` | SHAP importance ranking for all features |
+| `models/training_report.json` | Full metrics: classification report, confusion matrix, params, top features |
+
+---
+
+## 11. Fallback Logic
+
+When the model produces low confidence AND the page had no content:
+
+```python
+if confidence < 0.50 and content_available == 0:
+    # URL-pattern fallback
+    if url_list_token_match and not url_detail_token_match:
+        → "list", confidence=0.65
+    elif url_detail_token_match and not url_list_token_match:
+        → "detail", confidence=0.65
+    elif url_has_filter_param or url_has_page_param:
+        → "list", confidence=0.60
+    elif url_has_numeric_id or url_has_long_slug:
+        → "detail", confidence=0.60
+    elif url_is_root:
+        → "others", confidence=0.60
+    else:
+        → "others", confidence=0.50
+```
+
+`fallback_used=true` is recorded in `prediction.json` so you always know when the model vs fallback was responsible.
+
+---
+
+## 12. Edge Cases and Known Challenges
+
+### YouTube / Video Watch Pages
+**Problem:** YouTube watch pages have a recommended video sidebar (high repeated blocks, high link count = listing signals) but are actually detail pages.  
+**Fix applied:** Added `og_type_is_video` (weight 4), `has_twitter_player` (weight 3), `url_signals_single_item` (weight 2) as strong overriding signals in the composite detail score.
+
+### JavaScript-Heavy Pages (SPAs)
+**Problem:** React/Angular/Vue apps render content after JS execution. Playwright waits for `networkidle` but some content may still not be present.  
+**Impact:** Features like `word_count`, `rich_paragraph_count` may be lower than the actual visible content.  
+**Mitigation:** The `wait_after_load_ms=2500` config adds extra time after networkidle. Increasing this helps.
+
+### Cloudflare-Protected Sites
+**Problem:** Cloudflare Enterprise blocks headless browsers even with stealth.  
+**Behavior:** Marked as `failed` in checkpoint after 3 retries. Not used for training.  
+**Mitigation:** Without a proxy service, some sites cannot be scraped.
+
+### Homepages Classified as List or Detail
+**Problem:** Rich homepages (e.g., a news site homepage) can fire both listing signals (many articles = repeated blocks) and detail signals (feature story = single H1, author, date).  
+**Mitigation:** The `composite_others_score` captures the balanced-signal case. Add more homepage examples to training data for the domain.
+
+### Very Short Pages (404, Error Pages)
+**Problem:** Error pages have almost no content — model defaults to whatever URL signals suggest.  
+**Mitigation:** `content_available=0` is tracked. Low-content pages with low confidence trigger URL fallback.
+
+---
+
+## 13. Pipeline Commands
+
+### Full Pipeline (in order)
+```bash
+source venv/bin/activate
+
+python validate.py                        # Pre-flight check (run first time only)
+python scrape_run.py                      # Scrape training URLs
+python extract_run.py                     # Extract features
+python train_run.py                       # Train model
+python predict_run.py --url <URL>         # Predict a single URL
+```
+
+### Re-extract After Feature Changes
+```bash
+python reset.py --extract --yes           # Reset extract status to pending
+python extract_run.py                     # Re-extract with new features
+python train_run.py                       # Retrain
+```
+
+### Add New Training URLs
+```bash
+# Just add rows to data/training_urls.csv, then:
+python scrape_run.py                      # Only scrapes NEW urls
+python extract_run.py                     # Only extracts NEW urls
+python train_run.py                       # Retrains on all data
+```
+
+### Batch Prediction
+```bash
+python predict_batch.py --input urls.csv  # CSV with 'url' column, no label needed
+```
+
+### View Results Without Retraining
+```bash
+python train_run.py --show-results        # Shows saved report instantly
+python status.py                          # Full dashboard
+python status.py --failed                 # See failed URLs
+```
+
+### Inspect Features
+```bash
+python inspect.py url <URL>               # See all features for a URL
+python inspect.py compare <URL1> <URL2>   # Compare two URLs
+python inspect.py top-features            # See SHAP importance ranking
+python inspect.py list-urls               # List all URLs in checkpoint
+```
+
+### Reset Options
+```bash
+python reset.py --failed --yes            # Retry failed URLs
+python reset.py --extract --yes           # Re-extract all (keeps HTML)
+python reset.py --model --yes             # Delete model, keep data
+python reset.py --all --yes               # Full reset
+```
+
+---
+
+## 14. File Outputs Explained
+
+### `output/<label>/<folder>/raw.html`
+Full rendered HTML of the page with ALL external CSS inlined as a `<style>` block. Open this in any browser to see the page exactly as it was scraped — no network needed. Useful for verifying the scraper got the right page.
+
+### `output/<label>/<folder>/page.json`
+Structural metadata snapshot:
+```json
+{
+  "url": "https://...",
+  "title": "Page Title",
+  "domain": "example.com",
+  "scraped_at": "2024-...",
+  "meta": {"og:type": "product", "description": "..."},
+  "counts": {"links": 145, "images": 23, "forms": 1, "scripts": 12},
+  "h1_texts": ["Product Name Here"],
+  "html_length": 245000,
+  "status": "success"
+}
+```
+
+### `output/<label>/<folder>/features.json`
+All 131 extracted features as a flat JSON dict. This is the file that gets loaded for model training. Also includes `_url`, `_title`, `_body_text_length`, `_extraction_version` metadata keys (prefixed with `_`, not used as model features).
+
+### `predicted/<folder>/prediction.json`
+```json
+{
+  "url": "https://www.aliexpress.com/category/...",
+  "predicted_label": "list",
+  "confidence": 0.9891,
+  "probabilities": {
+    "list": 0.9891,
+    "detail": 0.0109,
+    "others": 0.0000
+  },
+  "fallback_used": false,
+  "content_available": true,
+  "scrape_status": "success",
+  "predicted_at": "2024-..."
+}
+```
+
+### `data/checkpoint.json`
+Master status tracker — one entry per URL:
+```json
+{
+  "https://example.com/products": {
+    "scrape_status": "success",
+    "extract_status": "success",
+    "folder": "example_com__a1b2c3d4",
+    "label": "list",
+    "feature_count": 131,
+    "scrape_completed_at": "2024-...",
+    "extract_completed_at": "2024-..."
+  }
+}
+```
+
+### `data/mapping.json`
+Folder-to-URL index (reverse lookup):
+```json
+{
+  "example_com__a1b2c3d4": {
+    "url": "https://example.com/products",
+    "label": "list",
+    "scrape_status": "success",
+    "extract_status": "success",
+    "files": ["raw.html", "page.json", "features.json"],
+    "feature_count": 131
+  }
+}
+```
+
+---
+
+## 15. How to Improve Accuracy
+
+### For the "others" class (currently weakest at F1=0.769)
+- Add more "others" examples: login pages, about pages, contact pages, error pages, dashboards, FAQ pages, team pages, pricing pages
+- Target 100+ "others" samples (currently only 75)
+- Be specific: one type of "others" per batch (10 login pages, 10 about pages, etc.)
+
+### For the "list" class (already strong at F1=0.964)
+- Cover more edge cases: infinite scroll pages (no pagination but still listing), map-based listings, image-only galleries without text
+- Add non-English listing pages if needed
+
+### For the "detail" class (already strong at F1=0.943)
+- Add more video/media detail pages (YouTube, Vimeo, TikTok, podcasts)
+- Add more social media profile pages
+- Add documentation pages (GitHub README, API docs)
+
+### General improvements
+1. **More data always helps** — aim for 200+ per class
+2. **Domain diversity** — don't train only on Amazon/Wikipedia. Include news sites, job boards, travel sites, government sites
+3. **Re-extract after adding features** — run `python reset.py --extract --yes` and `python extract_run.py` then retrain
+4. **Check feature_importance.json** — if a feature has near-zero SHAP importance across 20+ runs, consider removing it
+5. **Increase `wait_after_load_ms`** in `settings.yaml` for JS-heavy sites (try 4000-5000ms)
+
+---
+
+*Document generated from the live codebase. Feature count and importance rankings reflect the current trained model.*

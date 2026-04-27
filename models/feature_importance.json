@@ -1,0 +1,802 @@
+[
+  {
+    "feature": "url_path_depth",
+    "importance": 0.404947
+  },
+  {
+    "feature": "avg_paragraph_length",
+    "importance": 0.282752
+  },
+  {
+    "feature": "external_link_ratio",
+    "importance": 0.185351
+  },
+  {
+    "feature": "url_has_any_param",
+    "importance": 0.180018
+  },
+  {
+    "feature": "tag_h3_count",
+    "importance": 0.177838
+  },
+  {
+    "feature": "others_path_signal",
+    "importance": 0.174632
+  },
+  {
+    "feature": "tag_tr_count",
+    "importance": 0.161111
+  },
+  {
+    "feature": "numeric_token_density",
+    "importance": 0.1413
+  },
+  {
+    "feature": "academic_listing_signal",
+    "importance": 0.128116
+  },
+  {
+    "feature": "title_word_count",
+    "importance": 0.117602
+  },
+  {
+    "feature": "internal_anchor_links",
+    "importance": 0.096691
+  },
+  {
+    "feature": "url_depth_normalized",
+    "importance": 0.096369
+  },
+  {
+    "feature": "content_links",
+    "importance": 0.092118
+  },
+  {
+    "feature": "landing_page_score",
+    "importance": 0.091746
+  },
+  {
+    "feature": "composite_listing_score",
+    "importance": 0.090032
+  },
+  {
+    "feature": "anchor_text_diversity",
+    "importance": 0.086766
+  },
+  {
+    "feature": "entity_name_repetition",
+    "importance": 0.079822
+  },
+  {
+    "feature": "tag_h2_count",
+    "importance": 0.078372
+  },
+  {
+    "feature": "composite_others_score",
+    "importance": 0.07209
+  },
+  {
+    "feature": "li_density",
+    "importance": 0.067835
+  },
+  {
+    "feature": "tag_table_count",
+    "importance": 0.067148
+  },
+  {
+    "feature": "figure_count",
+    "importance": 0.061628
+  },
+  {
+    "feature": "total_links",
+    "importance": 0.057638
+  },
+  {
+    "feature": "internal_links",
+    "importance": 0.057091
+  },
+  {
+    "feature": "rich_paragraph_count",
+    "importance": 0.056492
+  },
+  {
+    "feature": "has_publish_date",
+    "importance": 0.056092
+  },
+  {
+    "feature": "navigation_density_ratio",
+    "importance": 0.051428
+  },
+  {
+    "feature": "tag_p_count",
+    "importance": 0.04921
+  },
+  {
+    "feature": "price_mention_count",
+    "importance": 0.049199
+  },
+  {
+    "feature": "h3_count",
+    "importance": 0.045289
+  },
+  {
+    "feature": "url_has_query_params",
+    "importance": 0.041084
+  },
+  {
+    "feature": "card_count",
+    "importance": 0.038026
+  },
+  {
+    "feature": "is_root_url",
+    "importance": 0.037983
+  },
+  {
+    "feature": "form_count",
+    "importance": 0.037761
+  },
+  {
+    "feature": "text_concentration_ratio",
+    "importance": 0.037141
+  },
+  {
+    "feature": "detail_alignment_score",
+    "importance": 0.036097
+  },
+  {
+    "feature": "heading_hierarchy_score",
+    "importance": 0.035137
+  },
+  {
+    "feature": "list_vs_detail_cue_ratio",
+    "importance": 0.034535
+  },
+  {
+    "feature": "tag_td_count",
+    "importance": 0.034207
+  },
+  {
+    "feature": "composite_detail_score",
+    "importance": 0.034143
+  },
+  {
+    "feature": "has_video",
+    "importance": 0.032583
+  },
+  {
+    "feature": "is_academic_domain",
+    "importance": 0.031522
+  },
+  {
+    "feature": "detail_cue_word_hits",
+    "importance": 0.030408
+  },
+  {
+    "feature": "tag_div_count",
+    "importance": 0.030355
+  },
+  {
+    "feature": "detail_vs_list_cue_ratio",
+    "importance": 0.030015
+  },
+  {
+    "feature": "alt_text_ratio",
+    "importance": 0.028609
+  },
+  {
+    "feature": "tag_section_count",
+    "importance": 0.028268
+  },
+  {
+    "feature": "repeated_sibling_containers",
+    "importance": 0.027917
+  },
+  {
+    "feature": "directory_detail_signals",
+    "importance": 0.025994
+  },
+  {
+    "feature": "images_with_alt",
+    "importance": 0.025196
+  },
+  {
+    "feature": "tag_span_count",
+    "importance": 0.02475
+  },
+  {
+    "feature": "gallery_image_count",
+    "importance": 0.024131
+  },
+  {
+    "feature": "tag_li_count",
+    "importance": 0.023391
+  },
+  {
+    "feature": "url_bias_corrected_listing",
+    "importance": 0.022583
+  },
+  {
+    "feature": "char_count",
+    "importance": 0.022326
+  },
+  {
+    "feature": "faq_signal_count",
+    "importance": 0.022036
+  },
+  {
+    "feature": "year_mention_count",
+    "importance": 0.021995
+  },
+  {
+    "feature": "link_to_word_ratio",
+    "importance": 0.021131
+  },
+  {
+    "feature": "has_canonical",
+    "importance": 0.020837
+  },
+  {
+    "feature": "word_count",
+    "importance": 0.020207
+  },
+  {
+    "feature": "nav_links",
+    "importance": 0.019699
+  },
+  {
+    "feature": "cta_signal_count",
+    "importance": 0.018811
+  },
+  {
+    "feature": "tag_article_count",
+    "importance": 0.018549
+  },
+  {
+    "feature": "image_count",
+    "importance": 0.017783
+  },
+  {
+    "feature": "article_byline_signal",
+    "importance": 0.016527
+  },
+  {
+    "feature": "tag_ul_count",
+    "importance": 0.016454
+  },
+  {
+    "feature": "url_list_token_match",
+    "importance": 0.016257
+  },
+  {
+    "feature": "info_signal_count",
+    "importance": 0.015597
+  },
+  {
+    "feature": "figcaption_count",
+    "importance": 0.015328
+  },
+  {
+    "feature": "article_section_ratio",
+    "importance": 0.014687
+  },
+  {
+    "feature": "button_count",
+    "importance": 0.014498
+  },
+  {
+    "feature": "li_text_diversity",
+    "importance": 0.01448
+  },
+  {
+    "feature": "external_links",
+    "importance": 0.01406
+  },
+  {
+    "feature": "url_has_numeric_id",
+    "importance": 0.013952
+  },
+  {
+    "feature": "has_internal_anchors",
+    "importance": 0.013633
+  },
+  {
+    "feature": "tag_nav_count",
+    "importance": 0.013542
+  },
+  {
+    "feature": "tag_aside_count",
+    "importance": 0.012627
+  },
+  {
+    "feature": "dom_max_depth",
+    "importance": 0.012625
+  },
+  {
+    "feature": "tag_h1_count",
+    "importance": 0.012562
+  },
+  {
+    "feature": "has_tabs",
+    "importance": 0.012555
+  },
+  {
+    "feature": "has_share_buttons",
+    "importance": 0.011996
+  },
+  {
+    "feature": "grid_class_count",
+    "importance": 0.011749
+  },
+  {
+    "feature": "has_rss_feed",
+    "importance": 0.011646
+  },
+  {
+    "feature": "log_total_links",
+    "importance": 0.010515
+  },
+  {
+    "feature": "og_numeric",
+    "importance": 0.010266
+  },
+  {
+    "feature": "article_in_product_site",
+    "importance": 0.009987
+  },
+  {
+    "feature": "has_testimonials",
+    "importance": 0.009925
+  },
+  {
+    "feature": "legal_signal_count",
+    "importance": 0.009815
+  },
+  {
+    "feature": "others_content_signal",
+    "importance": 0.008975
+  },
+  {
+    "feature": "log_word_count",
+    "importance": 0.008603
+  },
+  {
+    "feature": "tag_header_count",
+    "importance": 0.008571
+  },
+  {
+    "feature": "is_browse_path",
+    "importance": 0.008486
+  },
+  {
+    "feature": "h2_count",
+    "importance": 0.008118
+  },
+  {
+    "feature": "url_detail_token_match",
+    "importance": 0.007877
+  },
+  {
+    "feature": "links_per_1k_words",
+    "importance": 0.00779
+  },
+  {
+    "feature": "tag_h4_count",
+    "importance": 0.007764
+  },
+  {
+    "feature": "has_pricing_section",
+    "importance": 0.007595
+  },
+  {
+    "feature": "log_rich_paragraph_count",
+    "importance": 0.007254
+  },
+  {
+    "feature": "url_query_param_count",
+    "importance": 0.006968
+  },
+  {
+    "feature": "title_signals_listing",
+    "importance": 0.006915
+  },
+  {
+    "feature": "single_h1",
+    "importance": 0.006637
+  },
+  {
+    "feature": "others_vocab_footer_ratio",
+    "importance": 0.006204
+  },
+  {
+    "feature": "content_section_count",
+    "importance": 0.006121
+  },
+  {
+    "feature": "has_hero_section",
+    "importance": 0.006098
+  },
+  {
+    "feature": "og_type_is_website",
+    "importance": 0.006004
+  },
+  {
+    "feature": "has_filter_ui",
+    "importance": 0.005914
+  },
+  {
+    "feature": "url_has_long_slug",
+    "importance": 0.005669
+  },
+  {
+    "feature": "list_cue_word_hits",
+    "importance": 0.00549
+  },
+  {
+    "feature": "has_price",
+    "importance": 0.005384
+  },
+  {
+    "feature": "job_listing_vocab",
+    "importance": 0.005312
+  },
+  {
+    "feature": "has_comments_section",
+    "importance": 0.005128
+  },
+  {
+    "feature": "select_count",
+    "importance": 0.005003
+  },
+  {
+    "feature": "is_api_doc_domain",
+    "importance": 0.004914
+  },
+  {
+    "feature": "breadcrumb_depth",
+    "importance": 0.00485
+  },
+  {
+    "feature": "has_toc",
+    "importance": 0.004659
+  },
+  {
+    "feature": "tag_main_count",
+    "importance": 0.004528
+  },
+  {
+    "feature": "deep_content_blocks",
+    "importance": 0.004476
+  },
+  {
+    "feature": "content_list_score",
+    "importance": 0.004233
+  },
+  {
+    "feature": "has_result_count",
+    "importance": 0.003917
+  },
+  {
+    "feature": "has_microdata",
+    "importance": 0.003874
+  },
+  {
+    "feature": "tag_footer_count",
+    "importance": 0.003813
+  },
+  {
+    "feature": "log_image_count",
+    "importance": 0.00376
+  },
+  {
+    "feature": "high_link_no_pagination",
+    "importance": 0.003737
+  },
+  {
+    "feature": "has_pagination",
+    "importance": 0.003536
+  },
+  {
+    "feature": "content_available",
+    "importance": 0.003484
+  },
+  {
+    "feature": "has_twitter_summary_large",
+    "importance": 0.003311
+  },
+  {
+    "feature": "single_event_signals",
+    "importance": 0.00307
+  },
+  {
+    "feature": "listing_alignment_score",
+    "importance": 0.00295
+  },
+  {
+    "feature": "tag_ol_count",
+    "importance": 0.002934
+  },
+  {
+    "feature": "struct_list_score",
+    "importance": 0.002896
+  },
+  {
+    "feature": "has_buy_cta",
+    "importance": 0.002869
+  },
+  {
+    "feature": "has_many_years",
+    "importance": 0.002861
+  },
+  {
+    "feature": "has_compare_checkboxes",
+    "importance": 0.002725
+  },
+  {
+    "feature": "h4_count",
+    "importance": 0.002553
+  },
+  {
+    "feature": "has_image_gallery",
+    "importance": 0.002358
+  },
+  {
+    "feature": "has_author",
+    "importance": 0.002329
+  },
+  {
+    "feature": "h1_count",
+    "importance": 0.002092
+  },
+  {
+    "feature": "has_rating",
+    "importance": 0.001976
+  },
+  {
+    "feature": "page_number_links",
+    "importance": 0.001893
+  },
+  {
+    "feature": "url_has_extension",
+    "importance": 0.001819
+  },
+  {
+    "feature": "has_search_form",
+    "importance": 0.001732
+  },
+  {
+    "feature": "event_listing_signals",
+    "importance": 0.001589
+  },
+  {
+    "feature": "others_vocab_is_boilerplate",
+    "importance": 0.001567
+  },
+  {
+    "feature": "url_has_search_param",
+    "importance": 0.001544
+  },
+  {
+    "feature": "publication_list_signal",
+    "importance": 0.001533
+  },
+  {
+    "feature": "single_entity_weak",
+    "importance": 0.001483
+  },
+  {
+    "feature": "browse_vocab_signal",
+    "importance": 0.0014
+  },
+  {
+    "feature": "has_related_section",
+    "importance": 0.001215
+  },
+  {
+    "feature": "og_type_is_article",
+    "importance": 0.001152
+  },
+  {
+    "feature": "alignment_conflict",
+    "importance": 0.001028
+  },
+  {
+    "feature": "has_engagement_metrics",
+    "importance": 0.000934
+  },
+  {
+    "feature": "url_is_root",
+    "importance": 0.000821
+  },
+  {
+    "feature": "title_has_list_cue",
+    "importance": 0.000796
+  },
+  {
+    "feature": "og_type_is_video",
+    "importance": 0.000794
+  },
+  {
+    "feature": "has_data_table",
+    "importance": 0.000733
+  },
+  {
+    "feature": "job_posting_signals",
+    "importance": 0.000714
+  },
+  {
+    "feature": "url_signals_single_item",
+    "importance": 0.000609
+  },
+  {
+    "feature": "title_has_question",
+    "importance": 0.000576
+  },
+  {
+    "feature": "url_has_filter_param",
+    "importance": 0.000552
+  },
+  {
+    "feature": "rel_has_next",
+    "importance": 0.000513
+  },
+  {
+    "feature": "has_spec_section",
+    "importance": 0.000491
+  },
+  {
+    "feature": "page_lang_is_english",
+    "importance": 0.000474
+  },
+  {
+    "feature": "has_page_param_links",
+    "importance": 0.000374
+  },
+  {
+    "feature": "url_has_page_param",
+    "importance": 0.000354
+  },
+  {
+    "feature": "has_card_elements",
+    "importance": 0.000343
+  },
+  {
+    "feature": "title_has_detail_cue",
+    "importance": 0.00034
+  },
+  {
+    "feature": "has_main_content_element",
+    "importance": 0.000302
+  },
+  {
+    "feature": "has_breadcrumb",
+    "importance": 0.000296
+  },
+  {
+    "feature": "entity_is_repeated",
+    "importance": 0.000279
+  },
+  {
+    "feature": "rel_has_prev",
+    "importance": 0.000228
+  },
+  {
+    "feature": "has_jobs_in_path",
+    "importance": 0.000166
+  },
+  {
+    "feature": "has_grid_layout",
+    "importance": 0.000139
+  },
+  {
+    "feature": "single_entity_strong",
+    "importance": 0.000136
+  },
+  {
+    "feature": "numeric_id_with_single_h1",
+    "importance": 6.7e-05
+  },
+  {
+    "feature": "has_article_element",
+    "importance": 0.0
+  },
+  {
+    "feature": "has_repeated_blocks",
+    "importance": 0.0
+  },
+  {
+    "feature": "has_twitter_player",
+    "importance": 0.0
+  },
+  {
+    "feature": "has_duration_meta",
+    "importance": 0.0
+  },
+  {
+    "feature": "has_login_form",
+    "importance": 0.0
+  },
+  {
+    "feature": "range_input_count",
+    "importance": 0.0
+  },
+  {
+    "feature": "og_type_is_product",
+    "importance": 0.0
+  },
+  {
+    "feature": "has_schema_list_type",
+    "importance": 0.0
+  },
+  {
+    "feature": "has_schema_detail_type",
+    "importance": 0.0
+  },
+  {
+    "feature": "schema_type_count",
+    "importance": 0.0
+  },
+  {
+    "feature": "robots_noindex",
+    "importance": 0.0
+  },
+  {
+    "feature": "title_has_count_in_parens",
+    "importance": 0.0
+  },
+  {
+    "feature": "is_job_board_domain",
+    "importance": 0.0
+  },
+  {
+    "feature": "listing_structure_without_content",
+    "importance": 0.0
+  },
+  {
+    "feature": "low_variation_li",
+    "importance": 0.0
+  },
+  {
+    "feature": "pre_hint_schema",
+    "importance": 0.0
+  },
+  {
+    "feature": "pre_hint_has_schema",
+    "importance": 0.0
+  },
+  {
+    "feature": "forum_thread_signals",
+    "importance": 0.0
+  },
+  {
+    "feature": "purchase_funnel_signal",
+    "importance": 0.0
+  },
+  {
+    "feature": "job_posting_signal_combined",
+    "importance": 0.0
+  },
+  {
+    "feature": "title_signals_detail",
+    "importance": 0.0
+  },
+  {
+    "feature": "has_search_in_path",
+    "importance": 0.0
+  },
+  {
+    "feature": "has_type_query_param",
+    "importance": 0.0
+  },
+  {
+    "feature": "is_job_listing_page",
+    "importance": 0.0
+  },
+  {
+    "feature": "article_sibling_containers",
+    "importance": 0.0
+  },
+  {
+    "feature": "has_article_grid",
+    "importance": 0.0
+  }
+]

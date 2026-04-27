@@ -1,0 +1,353 @@
+================================================================================
+  WEBPAGE CLASSIFIER  —  Complete Reference Guide
+  Senior Scraping Team | Production Pipeline
+================================================================================
+
+OVERVIEW
+────────
+This pipeline classifies any webpage into one of three types:
+
+  list    → Listing / search-results page (multiple items, user picks one)
+  detail  → Detail page (one specific item, article, product, profile)
+  others  → Neither dominant (homepage, login page, mixed content)
+
+Classification strategy (in priority order):
+  1. Structure + Content features  →  XGBoost model
+  2. URL-pattern features          →  fallback if content is too thin
+  Both are always extracted; fallback activates only when model confidence < 50%
+  AND content is absent.
+
+────────────────────────────────────────────────────────────────────────────────
+PROJECT STRUCTURE
+────────────────────────────────────────────────────────────────────────────────
+
+webpage_classifier/
+├── scrape_run.py           ← STEP 1: Scrape training URLs
+├── extract_run.py          ← STEP 2: Extract features from HTML
+├── train_run.py            ← STEP 3: Train XGBoost model
+├── predict_run.py          ← STEP 4: Classify any URL
+│
+├── scraper/
+│   └── scraper.py          ← Playwright + stealth scraper (anti-bot)
+│
+├── extraction/
+│   └── feature_extractor.py ← 10-pillar feature extraction (core logic)
+│
+├── pipeline/
+│   └── utils.py            ← Shared utilities (config, logging, checkpoint)
+│
+├── config/
+│   └── settings.yaml       ← All configuration (edit this first)
+│
+├── data/
+│   ├── training_urls.csv   ← Your labelled training dataset
+│   ├── checkpoint.json     ← Auto-generated: scrape/extract progress
+│   └── mapping.json        ← Auto-generated: folder → URL metadata
+│
+├── output/                 ← Training data (auto-created)
+│   ├── list/
+│   │   └── <folder>/
+│   │       ├── raw.html        (full page with inlined CSS)
+│   │       ├── page.json       (structural metadata)
+│   │       └── features.json   (model training features)
+│   ├── detail/
+│   │   └── <folder>/  (same structure)
+│   └── others/
+│       └── <folder>/  (same structure)
+│
+├── predicted/              ← Prediction results (auto-created)
+│   ├── mapping.json        ← predicted URL → metadata mapping
+│   └── <folder>/
+│       ├── raw.html
+│       ├── features.json
+│       └── prediction.json
+│
+├── models/                 ← Trained model artefacts (auto-created)
+│   ├── classifier.joblib
+│   ├── label_encoder.joblib
+│   ├── feature_columns.json
+│   ├── feature_importance.json  ← SHAP-based importance ranking
+│   └── training_report.json     ← Full training metrics
+│
+├── logs/
+│   └── pipeline.log        ← All logs (auto-created)
+│
+├── requirements.txt
+└── docs/
+    └── REFERENCE.txt       ← This file
+
+────────────────────────────────────────────────────────────────────────────────
+SETUP  (run once)
+────────────────────────────────────────────────────────────────────────────────
+
+# 1. Clone / copy the project folder
+cd webpage_classifier
+
+# 2. Create a virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# 3. Install Python dependencies
+pip install -r requirements.txt
+
+# 4. Install Playwright browsers (Chromium only)
+playwright install chromium
+playwright install-deps chromium
+
+# 5. Verify installation
+python -c "from playwright.async_api import async_playwright; print('OK')"
+
+────────────────────────────────────────────────────────────────────────────────
+STEP 1 — PREPARE YOUR TRAINING CSV
+────────────────────────────────────────────────────────────────────────────────
+
+Edit:  data/training_urls.csv
+
+Format:
+  url,label
+  https://example.com/products,list
+  https://example.com/products/123,detail
+  https://example.com/,others
+
+Rules:
+  - Column names must be exactly: url, label
+  - Valid label values: list  |  detail  |  others  (lowercase)
+  - Recommended minimum per class: 30 URLs
+  - Ideal per class: 100+ URLs for good model performance
+
+────────────────────────────────────────────────────────────────────────────────
+STEP 2 — SCRAPE
+────────────────────────────────────────────────────────────────────────────────
+
+# Standard scrape (reads data/training_urls.csv from config)
+python scrape_run.py
+
+# Specify a different CSV
+python scrape_run.py --input /path/to/my_urls.csv
+
+# Preview what would be scraped without doing it
+python scrape_run.py --dry-run
+
+CHECKPOINT BEHAVIOUR:
+  - Already scraped URLs (success/failed/skipped) are NEVER re-scraped
+  - Add new URLs to the CSV → run scrape_run.py again → only new URLs processed
+  - To force re-scrape a URL: delete its entry from data/checkpoint.json
+
+Output files per URL:
+  output/<label>/<folder>/raw.html      ← full HTML with inlined CSS
+  output/<label>/<folder>/page.json     ← structural snapshot
+
+────────────────────────────────────────────────────────────────────────────────
+STEP 3 — EXTRACT FEATURES
+────────────────────────────────────────────────────────────────────────────────
+
+# Extract features for all successfully scraped pages
+python extract_run.py
+
+# Also retry previously failed extractions
+python extract_run.py --retry-failed
+
+Output per URL:
+  output/<label>/<folder>/features.json  ← 80+ features across 10 pillars
+
+Only pages with scrape_status=success are processed.
+
+────────────────────────────────────────────────────────────────────────────────
+STEP 4 — TRAIN THE MODEL
+────────────────────────────────────────────────────────────────────────────────
+
+# Full training with GridSearchCV (recommended, ~5-10 mins on 300 samples)
+python train_run.py
+
+# Quick training with default params (no grid search, faster)
+python train_run.py --no-gridsearch
+
+IMPORTANT: Only URLs with BOTH scrape_status=success AND extract_status=success
+are used for training. Failed/skipped URLs are excluded automatically.
+
+Saved artefacts:
+  models/classifier.joblib          ← XGBoost model
+  models/label_encoder.joblib       ← Label encoder (list/detail/others → int)
+  models/feature_columns.json       ← Exact feature list used at training time
+  models/feature_importance.json    ← SHAP feature importance (top features)
+  models/training_report.json       ← Classification report, confusion matrix
+
+────────────────────────────────────────────────────────────────────────────────
+STEP 5 — PREDICT
+────────────────────────────────────────────────────────────────────────────────
+
+# Classify a single URL
+python predict_run.py --url https://example.com/products
+
+# Re-predict a URL you've already classified
+python predict_run.py --url https://example.com/products --force
+
+Output:
+  predicted/<folder>/raw.html         ← scraped HTML
+  predicted/<folder>/features.json    ← extracted features
+  predicted/<folder>/prediction.json  ← result + probabilities + fallback flag
+  predicted/mapping.json              ← all predictions index
+
+Example prediction.json:
+  {
+    "url": "https://example.com/products",
+    "predicted_label": "list",
+    "confidence": 0.9231,
+    "probabilities": {
+      "list": 0.9231,
+      "detail": 0.0512,
+      "others": 0.0257
+    },
+    "fallback_used": false,
+    "content_available": true,
+    "scrape_status": "success",
+    "predicted_at": "2024-..."
+  }
+
+────────────────────────────────────────────────────────────────────────────────
+COMPLETE PIPELINE COMMAND SEQUENCE
+────────────────────────────────────────────────────────────────────────────────
+
+source venv/bin/activate
+python scrape_run.py
+python extract_run.py
+python train_run.py
+python predict_run.py --url https://YOUR_URL_HERE
+
+────────────────────────────────────────────────────────────────────────────────
+FEATURE PILLARS (what the model uses)
+────────────────────────────────────────────────────────────────────────────────
+
+Pillar 1  STRUCTURAL    DOM tag counts, nesting depth, grid/card class patterns
+Pillar 2  LINK          Total links, internal/external ratio, anchor diversity
+Pillar 3  CONTENT       Word count, heading hierarchy, paragraph richness
+Pillar 4  MEDIA         Image count, gallery detection, video presence
+Pillar 5  LISTING       Pagination, filter UI, result count, repeated blocks
+Pillar 6  DETAIL        Price, buy button, author, date, ratings, TOC, specs
+Pillar 7  INTERACTION   Forms, buttons, dropdowns, tabs, search inputs
+Pillar 8  METADATA      OG type, Schema.org type, robots, canonical
+Pillar 9  SEMANTIC NLP  List/detail cue keyword density, numeric token density
+Pillar 10 URL PATTERN   Path depth, slugs, numeric IDs, filter/search params
++         COMPOSITE     Derived listing/detail/others scores (cross-pillar)
+
+Total: ~85 features
+
+────────────────────────────────────────────────────────────────────────────────
+CHECKPOINT AND MAPPING FILES
+────────────────────────────────────────────────────────────────────────────────
+
+data/checkpoint.json
+  Keyed by URL. Tracks per-URL scrape and extraction status.
+  Status values: pending | success | failed | skipped
+
+  Example entry:
+  {
+    "https://example.com/products": {
+      "scrape_status": "success",
+      "extract_status": "success",
+      "folder": "example_com__a1b2c3d4",
+      "label": "list",
+      "feature_count": 87,
+      "last_updated": "2024-..."
+    }
+  }
+
+data/mapping.json
+  Keyed by folder name. Maps folder → URL + metadata.
+  Use this to navigate output/ folders.
+
+  Example entry:
+  {
+    "example_com__a1b2c3d4": {
+      "url": "https://example.com/products",
+      "label": "list",
+      "scrape_status": "success",
+      "extract_status": "success",
+      "files": ["raw.html", "page.json", "features.json"],
+      "feature_count": 87,
+      "created_at": "2024-..."
+    }
+  }
+
+predicted/mapping.json
+  Same structure for predicted URLs (no label field, has predicted_label).
+
+────────────────────────────────────────────────────────────────────────────────
+ANTI-BOT / SCRAPING NOTES
+────────────────────────────────────────────────────────────────────────────────
+
+The scraper uses:
+  - playwright-stealth: removes headless browser fingerprints
+  - navigator.webdriver overridden via JS injection
+  - Rotating User-Agents (Chrome on Linux/Windows/Mac)
+  - Random mouse movements + scroll simulation
+  - Random delays between requests (1-3.5s configurable)
+  - Resource blocking (fonts/media) for speed
+  - 3 retry attempts with exponential backoff
+  - Block/CAPTCHA detection with graceful logging
+
+No proxy is used. For heavily protected sites (Cloudflare Enterprise),
+some pages may still fail. These are logged and skipped cleanly.
+
+To adjust scraping behaviour: edit config/settings.yaml → scraper section.
+
+────────────────────────────────────────────────────────────────────────────────
+TROUBLESHOOTING
+────────────────────────────────────────────────────────────────────────────────
+
+Problem: playwright not found
+  Fix: playwright install chromium && playwright install-deps chromium
+
+Problem: playwright_stealth not found
+  Fix: pip install playwright-stealth
+
+Problem: "No training data found"
+  Fix: Run scrape_run.py then extract_run.py first
+
+Problem: Model accuracy is low
+  Causes: Too few training samples, imbalanced classes
+  Fix: Add more labelled URLs (aim for 100+ per class)
+
+Problem: A URL always fails to scrape
+  Check logs/pipeline.log for the reason.
+  The URL will be marked "failed" in checkpoint and won't block future runs.
+
+Problem: Want to reset everything and start fresh
+  rm data/checkpoint.json data/mapping.json
+  rm -rf output/ predicted/ models/
+  Then run the pipeline again.
+
+────────────────────────────────────────────────────────────────────────────────
+QUICK REFERENCE — COMMANDS
+────────────────────────────────────────────────────────────────────────────────
+
+Setup:
+  python3 -m venv venv && source venv/bin/activate
+  pip install -r requirements.txt
+  playwright install chromium
+  playwright install-deps chromium
+
+Pipeline:
+  python scrape_run.py                          # Step 1: scrape
+  python scrape_run.py --input my.csv           # Step 1: custom CSV
+  python scrape_run.py --dry-run                # Step 1: preview only
+  python extract_run.py                         # Step 2: extract features
+  python extract_run.py --retry-failed          # Step 2: include failed
+  python train_run.py                           # Step 3: train model
+  python train_run.py --no-gridsearch           # Step 3: quick train
+  python predict_run.py --url <URL>             # Step 4: classify URL
+  python predict_run.py --url <URL> --force     # Step 4: re-classify
+
+Inspect:
+  cat data/checkpoint.json                      # see all URL statuses
+  cat data/mapping.json                         # see folder → URL mapping
+  cat predicted/mapping.json                    # see prediction results
+  cat models/training_report.json               # see model metrics
+  cat models/feature_importance.json            # see top features
+
+================================================================================
+
+if need to reset all the features and then again extract and train the model 
+python reset.py --extract --yes
+python extract_run.py
+python train_run.py

@@ -1,0 +1,65 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# ── Virtual Environment ───────────────────────────────────────────────────────
+venv/
+env/
+.env/
+.venv/
+ENV/
+
+# ── Scraped Data (too large, private) ────────────────────────────────────────
+output/
+predicted/
+logs/
+
+# ── Model Files (large binary files) ─────────────────────────────────────────
+models/classifier.joblib
+models/label_encoder.joblib
+
+# ── Checkpoint and Mapping (auto-generated, machine-specific) ────────────────
+data/checkpoint.json
+data/mapping.json
+
+# ── Misclassification CSVs (generated at runtime) ────────────────────────────
+misclassified_all.csv
+misclassified_detail.csv
+misclassified_list.csv
+misclassified_others.csv
+
+# ── Sensitive / Local Config ──────────────────────────────────────────────────
+.env
+*.env
+secrets.yaml
+
+# ── OS Files ──────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# ── Playwright Browser Binaries ───────────────────────────────────────────────
+playwright/
+.playwright/
+
+# ── Test / Temp Files ─────────────────────────────────────────────────────────
+test_urls.csv
+*.tmp
+*.bak
+
+# ── What TO keep in models/ ───────────────────────────────────────────────────
+# Keep these (small JSON files, useful for reference):
+!models/feature_columns.json
+!models/feature_importance.json
+!models/training_report.json
