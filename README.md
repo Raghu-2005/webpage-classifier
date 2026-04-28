@@ -530,7 +530,7 @@ models/feature_importance.json
 models/training_report.json      
 ```
 
-> To get a fully working model, clone the repo and run the full pipeline (`scrap → extract → train`), or download the `.joblib` files separately if provided.
+> To get a fully working model, clone the repo and run the full pipeline (`scrap → extract → train`)
 
 ---
 
