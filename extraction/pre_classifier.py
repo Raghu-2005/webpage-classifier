@@ -1,9 +1,6 @@
 """
-extraction/pre_classifier.py
-─────────────────────────────
-Deterministic pre-classifier that runs BEFORE the ML model.
 
-Priority order (v8 — final):
+Priority order :
   1. Error / blocked page detection   → "others" + error flag      (conf 0.97)
   2. Schema.org / JSON-LD             → direct classification       (conf 0.96)
   3. RSS / Atom feed link             → list (skipped for listing URLs) (conf 0.93)
@@ -14,37 +11,7 @@ Priority order (v8 — final):
   8. Strong 'others' signals          → others (with guards)        (conf 0.90)
   ── Everything else → ML model ──
 
-RULES REMOVED (now ML features only — do not add back):
-  - rel=next/prev hard rule (REMOVED v8):
-      Documentation sites (Python docs, MDN, Django docs, Wikipedia) use
-      rel=next for chapter/article navigation. Each chapter IS a detail page.
-      Blog posts use rel=next for previous/next post. Product pages use it
-      for prev/next product in category. rel=next is ambiguous — it does NOT
-      reliably mean "this page is a paginated listing". The ML model sees
-      rel_has_next and rel_has_prev as features in pillar 12 and can weigh
-      them properly alongside all other signals.
-  - content_context hard rule (REMOVED v7):
-      Caused Kaggle /datasets and similar pages to be called "others".
-      Those signals (doc_signals, forum_signals) are still ML features.
-  - strong_detail hard rule (REMOVED v4):
-      False positives on Spotify, Apple, python.org, shopify.com, glassdoor,
-      reddit, arxiv list pages. Now ML features.
 
-GUARDS (protect against false positives on weak rules):
-  - _is_listing_url(): RSS and OG rules skip when URL clearly signals listing.
-    Prevents search pages with RSS feeds or template OG tags from being
-    wrongly forced into list/detail before ML runs.
-  - Detail-page guard on others rule: if page has price/buy-CTA/rating/specs,
-    skip the others rule — it is a product/detail page, not a marketing page.
-  - Marketing requirement on others rule: requires pricing/plans/enterprise
-    vocabulary so true product pages with footers don't get called "others".
-
-v8 CHANGELOG:
-  - REMOVED rel=next/prev as hard rule. Python docs, Wikipedia articles,
-    blog posts all have rel=next but are detail pages, not listing pages.
-    Kept as ML features rel_has_next, rel_has_prev in feature_extractor.py.
-  - All other fixes from v6/v7 retained (listing URL escape, detail guard,
-    marketing requirement, raised others threshold).
 """
 
 from __future__ import annotations
@@ -88,9 +55,7 @@ ERROR_SIGNALS = [
     r"\bverify you are human\b",
 ]
 
-# Only unambiguous Schema.org types.
-# Removed: organization, person, profilepage, localbusiness, restaurant,
-# hotel, lodgingbusiness, imageobject, breadcrumblist — too ambiguous.
+
 SCHEMA_TO_CLASS: Dict[str, str] = {
     "product":             "detail",
     "productgroup":        "detail",
@@ -145,7 +110,7 @@ OG_TYPE_PREFIX_MAP: List[Tuple[str, str, float]] = [
 ]
 
 
-# ─── URL Listing-Intent Helper ────────────────────────────────────────────────
+#  URL Listing-Intent Helper 
 def _is_listing_url(url: str) -> bool:
     """
     Returns True when the URL structure unambiguously signals a search,
@@ -164,7 +129,6 @@ def _is_listing_url(url: str) -> bool:
     netloc = parsed.netloc.lower()
 
     # Explicit search/filter query parameters
-    # k= is Amazon's search param; field-keywords is also Amazon
     if re.search(r"(^|&)(q|query|search|s|find|keyword|term|k|field-keywords)=", query):
         return True
     if re.search(r"(^|&)(type|category|filter|sort|page|offset|c)=", query):
@@ -198,7 +162,7 @@ def _is_listing_url(url: str) -> bool:
     return False
 
 
-# ─── Schema.org extraction ────────────────────────────────────────────────────
+# Schema.org extraction 
 def _extract_schema_types(soup: BeautifulSoup) -> List[str]:
     types: List[str] = []
     for script in soup.find_all("script", type="application/ld+json"):
@@ -232,7 +196,7 @@ def _extract_schema_types(soup: BeautifulSoup) -> List[str]:
     return [t for t in types if t]
 
 
-# ─── Error page detection ─────────────────────────────────────────────────────
+# Error page detection 
 def _detect_error_page(html: str, title: str, http_status: Optional[int]) -> bool:
     if http_status and http_status >= 400:
         return True
@@ -243,7 +207,7 @@ def _detect_error_page(html: str, title: str, http_status: Optional[int]) -> boo
     return False
 
 
-# ─── RSS / Atom feed ─────────────────────────────────────────────────────────
+#  RSS / Atom feed 
 def _has_feed_link(soup: BeautifulSoup) -> bool:
     """
     RSS or Atom <link> in <head> signals content aggregator / listing page.
@@ -262,7 +226,7 @@ def _has_feed_link(soup: BeautifulSoup) -> bool:
     return False
 
 
-# ─── Strong listing pattern (3-of-5) ─────────────────────────────────────────
+# Strong listing pattern 
 def _strong_listing_pattern(soup: BeautifulSoup, body_text: str) -> bool:
     """
     Requires 3 of 5 structural listing signals simultaneously.
@@ -320,7 +284,7 @@ def _strong_listing_pattern(soup: BeautifulSoup, body_text: str) -> bool:
     return signals >= 3
 
 
-# ─── Domain-specific rules ────────────────────────────────────────────────────
+# Domain-specific rules 
 def _domain_specific_rules(
     url: str, body_text: str, soup: BeautifulSoup
 ) -> Optional[Tuple[str, float, str]]:
@@ -330,7 +294,7 @@ def _domain_specific_rules(
     lower_url  = url.lower()
     lower_body = body_text.lower()
 
-    # Job boards — the domain itself is sufficient to declare a listing
+    # Job boards 
     job_board_domains = {
         "lever.co":              CONF_STRONG,
         "greenhouse.io":         CONF_STRONG,
@@ -400,7 +364,6 @@ def _domain_specific_rules(
             return ("list", 0.88, f"social_browse={type_name}")
 
     # Generic browse/discover/exhibition paths on any domain
-    # Guarded by link count to avoid mis-firing on thin pages
     browse_path_pat = re.compile(
         r"/(categories|category|discover|exhibitions?|browse|collections?|"
         r"explore|shows?|events?|publications?|archives?)/?$",
@@ -414,7 +377,7 @@ def _domain_specific_rules(
     return None
 
 
-# ─── Main pre_classify function ───────────────────────────────────────────────
+# Main pre_classify function 
 def pre_classify(
     html: str,
     url: str,
@@ -427,9 +390,6 @@ def pre_classify(
     None = no unambiguous rule fired = caller runs ML model.
 
     Key design principle: when in doubt, return None.
-    The ML model with 180+ features is more reliable than any single rule.
-    Hard rules are only for cases where the signal is developer-declared
-    (Schema.org) or structurally overwhelming (3-of-5 listing signals).
     """
     if not html:
         return None
@@ -453,7 +413,7 @@ def pre_classify(
     # Pre-compute listing URL intent — shared by RSS, OG, others_signals rules
     listing_url = _is_listing_url(url)
 
-    # ── Step 1: Error / blocked page ──────────────────────────────────────────
+    # Step 1: Error / blocked page 
     if _detect_error_page(lower_html, title, http_status):
         logger.info(f"Error page detected: {url}")
         return {
@@ -462,9 +422,8 @@ def pre_classify(
             "is_error_page": True,
         }
 
-    # ── Step 2: Schema.org JSON-LD ────────────────────────────────────────────
+    # Step 2: Schema.org JSON-LD 
     # Developer-declared ground truth — most reliable signal available.
-    # When a site sets @type: "Product" or @type: "ItemList", trust it.
     schema_types = _extract_schema_types(soup)
     if schema_types:
         for stype in schema_types:
@@ -478,21 +437,9 @@ def pre_classify(
                     "schema_types": schema_types,
                 }
 
-    # ── Step 3: RSS / Atom feed ───────────────────────────────────────────────
-    # Skipped for listing-intent URLs — search/browse pages often expose RSS
-    # feeds but are still search pages, not "list" in the aggregator sense.
     
 
     # ── Step 4: Open Graph type ───────────────────────────────────────────────
-    # Skipped for listing-intent URLs — search/browse pages inherit og:type
-    # from site templates (e.g. Dribbble search has og:type=article → wrong).
-    # NOTE: rel=next/prev previously was step 3 here (REMOVED in v8).
-    #   Documentation sites (Python docs, MDN, Django, Wikipedia) use rel=next
-    #   for chapter/article sequence navigation — not pagination of a list.
-    #   Blog posts use rel=next for previous/next article. Product pages use it
-    #   for prev/next product. rel=next is ambiguous and fires incorrectly on
-    #   detail pages. It is now ONLY an ML feature (rel_has_next, rel_has_prev
-    #   in pillar 12 of feature_extractor.py).
     if not listing_url:
         og_tag  = soup.find("meta", property="og:type")
         og_type = (og_tag.get("content", "") if og_tag else "").lower().strip()
@@ -505,7 +452,7 @@ def pre_classify(
                         "method": "open_graph", "reason": f"og:type={og_type}",
                     }
 
-    # ── Step 5: Twitter card = player ─────────────────────────────────────────
+    # Step 5: Twitter card = player 
     # Very specific — only playable media items set this. Reliable regardless of URL.
     tc_tag  = soup.find("meta", attrs={"name": "twitter:card"})
     tc_type = (tc_tag.get("content", "") if tc_tag else "").lower().strip()
@@ -516,7 +463,7 @@ def pre_classify(
             "method": "twitter_card", "reason": "twitter:card=player",
         }
 
-    # ── Step 6: Strong listing pattern (3-of-5 structural signals) ────────────
+    # Step 6: Strong listing pattern (3-of-5 structural signals) 
     if _strong_listing_pattern(soup, body_text):
         logger.info(f"Strong listing pattern → list: {url}")
         return {
@@ -524,7 +471,7 @@ def pre_classify(
             "method": "strong_listing", "reason": "multi_signal_listing_dom",
         }
 
-    # ── Step 7: Domain-specific rules ─────────────────────────────────────────
+    # Step 7: Domain-specific rules 
     domain_result = _domain_specific_rules(url, body_text, soup)
     if domain_result:
         cls, conf, reason = domain_result
@@ -534,27 +481,14 @@ def pre_classify(
             "method": "domain_specific", "reason": reason,
         }
 
-    # ── Step 8: Strong 'others' signals ───────────────────────────────────────
-    # Detects true marketing / landing / legal / info pages.
-    #
-    # THREE GUARDS prevent false positives:
-    #
-    # Guard A — Listing URL escape:
-    #   Job boards, browse pages, search pages mention "about us", "careers",
-    #   "privacy" in their footer. Skip this rule for listing-intent URLs.
-    #
-    # Guard B — Detail page escape:
-    #   Product pages, articles, and review pages ALSO have FAQ sections,
-    #   "learn more" CTAs, and full footer nav (privacy, about us, contact).
-    #   If ANY strong detail signal is present → this is not an "others" page.
-    #   Example: Xiaomi TV on Poorvika had legal=5, info=5, faq=4 from footer
-    #   but was a product page. Without this guard → OTHERS at 96%. Wrong.
-    #
-    # Guard C — Marketing vocabulary requirement:
-    #   True OTHERS pages (Stripe, Notion, HubSpot) mention "pricing", "plans",
-    #   "enterprise", "solutions" in their main content. Product pages and
-    #   articles do not. This is the final separator between "SaaS landing page"
-    #   and "product detail page that happens to have a standard footer".
+    # Step 8: Strong 'others' signals 
+    
+    
+    # THREE GUARDS prevent false positives
+    # Guard A — Listing URL escape
+    # Guard B — Detail page escape
+    # Guard C — Marketing vocabulary requirement
+
 
     if not listing_url:
 
@@ -664,8 +598,6 @@ def pre_classify(
                     ),
                 }
 
-    # ── No rule matched → ML model ────────────────────────────────────────────
-    # This is the correct outcome for ambiguous pages.
-    # The ML model with 180+ features handles the rest.
+    # No rule matched → ML model 
     logger.debug(f"No rule matched → ML model: {url}")
     return None
