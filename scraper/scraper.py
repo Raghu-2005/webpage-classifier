@@ -1,29 +1,3 @@
-"""
-scraper/scraper.py
-──────────────────
-Production-grade Playwright scraper with:
-  - playwright-stealth  (evades headless detection)
-  - Randomised human-like behaviour (mouse moves, scroll, random delays)
-  - Rotating User-Agents & viewport randomisation
-  - Cloudflare / CAPTCHA / generic-block detection + graceful retry
-  - Full raw HTML saved WITH inline CSS (via computed styles injection)
-  - Rich JSON page snapshot — all links, images, headings, text, schema, meta
-  - Configurable concurrency via asyncio Semaphore
-
-page.json structure (v2):
-  url, title, domain, path, scraped_at, html_length, status
-  meta          → all <meta> name/property/itemprop tags
-  counts        → links, images, forms, scripts, h1-h4
-  headings      → {h1: [...], h2: [...], h3: [...], h4: [...]}
-  links         → [{text, href, is_internal, rel}, ...] (all <a> tags)
-  images        → [{src, alt, width, height, loading}, ...] (all <img>)
-  body_text     → full visible text (stripped, whitespace-normalised)
-  schema_org    → parsed JSON-LD @type + @graph data
-  open_graph    → all og:* meta values
-  canonical     → canonical URL if present
-  pagination    → {has_next, has_prev, rel_links: [...]}
-  forms         → [{action, method, inputs: [...]}]
-"""
 
 from __future__ import annotations
 
@@ -58,7 +32,7 @@ logger = get_logger("scraper")
 cfg = load_config()
 S = cfg["scraper"]
 
-# ─── Block-detection patterns ─────────────────────────────────────────────────
+#  Block-detection patterns
 BLOCK_SIGNALS = [
     "cf-browser-verification",
     "challenge-form",
@@ -184,7 +158,7 @@ async def _build_page_json(page: Page, url: str, title: str, html: str) -> Dict:
     parsed = urlparse(url)
     domain = parsed.netloc
 
-    # ── Meta tags ─────────────────────────────────────────────────────────────
+    #  Meta tags 
     try:
         meta = await page.evaluate("""
             () => {
@@ -200,7 +174,7 @@ async def _build_page_json(page: Page, url: str, title: str, html: str) -> Dict:
     except Exception:
         meta = {}
 
-    # ── Open Graph specifically ───────────────────────────────────────────────
+    #  Open Graph specifically 
     try:
         open_graph = await page.evaluate("""
             () => {
@@ -216,7 +190,7 @@ async def _build_page_json(page: Page, url: str, title: str, html: str) -> Dict:
     except Exception:
         open_graph = {}
 
-    # ── Headings ──────────────────────────────────────────────────────────────
+    # Headings 
     try:
         headings = await page.evaluate("""
             () => {
@@ -232,7 +206,7 @@ async def _build_page_json(page: Page, url: str, title: str, html: str) -> Dict:
     except Exception:
         headings = {"h1": [], "h2": [], "h3": [], "h4": []}
 
-    # ── All links ─────────────────────────────────────────────────────────────
+    # All links 
     try:
         links = await page.evaluate(f"""
             () => {{
@@ -260,7 +234,7 @@ async def _build_page_json(page: Page, url: str, title: str, html: str) -> Dict:
     except Exception:
         links = []
 
-    # ── All images ────────────────────────────────────────────────────────────
+    # All images 
     try:
         images = await page.evaluate("""
             () => Array.from(document.querySelectorAll('img'))
@@ -276,7 +250,7 @@ async def _build_page_json(page: Page, url: str, title: str, html: str) -> Dict:
     except Exception:
         images = []
 
-    # ── Body text (visible, cleaned) ─────────────────────────────────────────
+    # Body text (visible, cleaned) 
     try:
         body_text = await page.evaluate("""
             () => {
@@ -294,7 +268,7 @@ async def _build_page_json(page: Page, url: str, title: str, html: str) -> Dict:
     except Exception:
         body_text = ""
 
-    # ── Schema.org JSON-LD ────────────────────────────────────────────────────
+    # Schema.org JSON-LD 
     try:
         schema_raw = await page.evaluate("""
             () => Array.from(document.querySelectorAll('script[type="application/ld+json"]'))
@@ -321,7 +295,7 @@ async def _build_page_json(page: Page, url: str, title: str, html: str) -> Dict:
     except Exception:
         schema_org = {"raw": [], "types_found": []}
 
-    # ── Canonical URL ─────────────────────────────────────────────────────────
+    # Canonical URL 
     try:
         canonical = await page.evaluate("""
             () => {
@@ -332,7 +306,7 @@ async def _build_page_json(page: Page, url: str, title: str, html: str) -> Dict:
     except Exception:
         canonical = None
 
-    # ── Pagination signals ────────────────────────────────────────────────────
+    # Pagination signals 
     try:
         pagination = await page.evaluate("""
             () => {
@@ -352,7 +326,7 @@ async def _build_page_json(page: Page, url: str, title: str, html: str) -> Dict:
     except Exception:
         pagination = {"has_next": False, "has_prev": False, "rel_links": []}
 
-    # ── Forms ─────────────────────────────────────────────────────────────────
+    #  Forms 
     try:
         forms = await page.evaluate("""
             () => Array.from(document.querySelectorAll('form')).map(form => ({
@@ -369,7 +343,7 @@ async def _build_page_json(page: Page, url: str, title: str, html: str) -> Dict:
     except Exception:
         forms = []
 
-    # ── Counts summary ────────────────────────────────────────────────────────
+    # Counts summary 
     counts = {
         "links":   len(links),
         "images":  len(images),

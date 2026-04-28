@@ -1,8 +1,5 @@
 """
-inspect.py
-──────────
-CLI tool for inspecting pipeline output — useful for debugging
-and understanding what features were extracted for any URL.
+
 
 Commands:
   python inspect.py url     <URL>          → show features for a specific URL

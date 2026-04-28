@@ -1,7 +1,4 @@
 """
-extract_run.py
-──────────────
-CLI command: python extract_run.py
 
 What it does:
   1. Reads checkpoint.json to find URLs with scrape_status=success
@@ -44,7 +41,7 @@ def main(retry_failed: bool):
     checkpoint = load_checkpoint()
     mapping = load_mapping()
 
-    # ── Find URLs to extract ───────────────────────────────────────────────────
+    #  Find URLs to extract 
     to_extract = []
     for url, meta in checkpoint.items():
         if meta.get("scrape_status") != "success":
@@ -153,7 +150,7 @@ def main(retry_failed: bool):
 
             progress.advance(task)
 
-    # ── Summary ───────────────────────────────────────────────────────────────
+    #  Summary 
     table = Table(title="Extraction Summary", show_header=True)
     table.add_column("Metric", style="bold")
     table.add_column("Count", style="cyan")

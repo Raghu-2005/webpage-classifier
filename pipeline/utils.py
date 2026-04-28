@@ -1,6 +1,4 @@
 """
-pipeline/utils.py
-─────────────────
 Shared utilities used across the entire pipeline:
   - Config loading
   - Consistent logger setup (file + console via Rich)
@@ -25,10 +23,10 @@ import yaml
 from rich.console import Console
 from rich.logging import RichHandler
 
-# ─── Singleton console ────────────────────────────────────────────────────────
+# Singleton console 
 console = Console()
 
-# ─── Config ───────────────────────────────────────────────────────────────────
+# Config 
 _config: Optional[Dict[str, Any]] = None
 _CONFIG_PATH = Path(__file__).parent.parent / "config" / "settings.yaml"
 
@@ -43,7 +41,7 @@ def load_config(path: Optional[Path] = None) -> Dict[str, Any]:
     return _config
 
 
-# ─── Logger ───────────────────────────────────────────────────────────────────
+# Logger 
 def get_logger(name: str) -> logging.Logger:
     """Return a logger that writes to both console (Rich) and a log file."""
     cfg = load_config()
@@ -73,7 +71,7 @@ def get_logger(name: str) -> logging.Logger:
     return logger
 
 
-# ─── URL Hashing ──────────────────────────────────────────────────────────────
+# URL Hashing 
 def url_to_folder_name(url: str) -> str:
     """
     Convert a URL to a deterministic, filesystem-safe folder name.
@@ -88,7 +86,7 @@ def url_to_folder_name(url: str) -> str:
     return f"{domain_slug}__{sha}"
 
 
-# ─── Checkpoint ───────────────────────────────────────────────────────────────
+#  Checkpoint 
 def load_checkpoint(path: Optional[Path] = None) -> Dict[str, Any]:
     """
     Returns dict keyed by url with value = status dict.
@@ -132,7 +130,7 @@ def update_checkpoint(
     save_checkpoint(data, path)
 
 
-# ─── Mapping ──────────────────────────────────────────────────────────────────
+# Mapping 
 def load_mapping(path: Optional[Path] = None) -> Dict[str, Any]:
     """
     Global mapping: folder_name → metadata.
@@ -176,6 +174,6 @@ def update_mapping(
     save_mapping(data, path)
 
 
-# ─── Timestamp ────────────────────────────────────────────────────────────────
+#  Timestamp 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()

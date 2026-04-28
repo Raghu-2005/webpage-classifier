@@ -1,7 +1,4 @@
 """
-fix_labels.py
-─────────────
-Run this ONCE after fixing your training_urls.csv.
 
 What it does:
   1. Reads the corrected training_urls.csv
@@ -49,7 +46,7 @@ def main():
         console.print(f"[red]CSV not found: {csv_path}")
         sys.exit(1)
 
-    # ── Read the corrected CSV ─────────────────────────────────────────────────
+    #  Read the corrected CSV 
     valid_labels = {"list", "detail", "others"}
     csv_labels: dict[str, str] = {}
     with open(csv_path, encoding="utf-8") as f:
@@ -151,11 +148,11 @@ def main():
         changes.append((url, old_label, new_label, folder))
         moved += 1
 
-    # ── Save updated checkpoint + mapping ─────────────────────────────────────
+    # Save updated checkpoint + mapping
     save_checkpoint(checkpoint)
     save_mapping(mapping)
 
-    # ── Summary ───────────────────────────────────────────────────────────────
+    # Summary 
     console.rule("[bold blue]Summary")
     console.print(f"\n  [green]✓ Folders moved & labels fixed: {moved}")
     console.print(f"  [dim]  Label unchanged (no action needed): {skipped}")
