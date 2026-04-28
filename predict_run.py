@@ -1,6 +1,5 @@
 """
-predict_run.py
-──────────────
+
 Two modes:
 
   1. Interactive loop (default):

@@ -1,7 +1,4 @@
 """
-reset.py
-────────
-CLI command: python reset.py [OPTIONS]
 
 Safely reset parts of the pipeline without losing data you want to keep.
 
@@ -88,7 +85,7 @@ def main(
             console.print("[green]Reset cancelled.[/green]")
             return
 
-    # ── Execute ───────────────────────────────────────────────────────────────
+    #  Execute 
     checkpoint_path = Path(cfg["paths"]["checkpoint"])
     mapping_path = Path(cfg["paths"]["mapping"])
     output_root = Path(cfg["paths"]["output_dir"])

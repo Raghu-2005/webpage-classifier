@@ -1,7 +1,4 @@
 """
-train_run.py
-────────────
-CLI command: python train_run.py
 
 What it does:
   1. Collects all features.json from output/ where extract_status=success
@@ -44,7 +41,7 @@ cfg = load_config()
 MODEL_CFG = cfg["model"]
 
 
-# ─── Load training data ───────────────────────────────────────────────────────
+# Load training data 
 def _purge_stale_features(output_root: Path, checkpoint: Dict) -> int:
     """
     Find and delete features.json files that belong to URLs where
@@ -214,9 +211,6 @@ def _shap_importance(model, X_test, feature_cols: List[str]) -> List[Dict]:
         shap_values = explainer.shap_values(sample)
 
         # shap_values shape variants:
-        #   Old API (shap < 0.42):  list of (n_samples, n_features) — one per class
-        #   New API (shap >= 0.42): ndarray (n_samples, n_features, n_classes)
-        #                        or ndarray (n_samples, n_features) for binary
         sv = np.array(shap_values)
 
         if sv.ndim == 3:
@@ -274,7 +268,7 @@ def main(no_gridsearch: bool, show_results: bool):
     models_dir = Path(cfg["paths"]["models_dir"])
     models_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Show saved results without retraining ─────────────────────────────────
+    # Show saved results without retraining 
     if show_results:
         report_path = models_dir / "training_report.json"
         if not report_path.exists():
@@ -311,7 +305,7 @@ def main(no_gridsearch: bool, show_results: bool):
     console.rule("[bold blue]Webpage Classifier — Train Step")
     checkpoint = load_checkpoint()
 
-    # ── Load data ─────────────────────────────────────────────────────────────
+    # Load data
     df = _load_training_data(output_root, checkpoint)
 
     if df.empty:
@@ -328,7 +322,7 @@ def main(no_gridsearch: bool, show_results: bool):
             )
             sys.exit(1)
 
-    # ── Prepare ───────────────────────────────────────────────────────────────
+    # Prepare
     X, y, le, feature_cols = _prepare_xy(df)
 
     X_train, X_test, y_train, y_test = train_test_split(
@@ -340,7 +334,7 @@ def main(no_gridsearch: bool, show_results: bool):
 
     console.print(f"Train: {len(X_train)} | Test: {len(X_test)}")
 
-    # ── Train ─────────────────────────────────────────────────────────────────
+    # Train 
     if no_gridsearch:
         params = {k: v for k, v in MODEL_CFG["xgb_params"].items()
                   if k not in ("use_label_encoder",)}
@@ -351,14 +345,14 @@ def main(no_gridsearch: bool, show_results: bool):
     else:
         model = _train_model(X_train, y_train)
 
-    # ── Evaluate ──────────────────────────────────────────────────────────────
+    # Evaluate
     eval_results = _evaluate(model, X_test, y_test, le)
     acc = eval_results["accuracy"]
     print(f"\n  Accuracy: {acc*100:.2f}%")
     report = eval_results["classification_report"]
     cm = eval_results["confusion_matrix"]
 
-    # ── FULL MISCLASSIFICATION ANALYSIS ────────────────────────────────────────
+    # FULL MISCLASSIFICATION ANALYSIS
     y_pred = model.predict(X_test)
     y_prob = model.predict_proba(X_test)
 
@@ -389,14 +383,14 @@ def main(no_gridsearch: bool, show_results: bool):
 
     df_results = pd.DataFrame(results)
 
-    # ── All misclassified ──────────────────────────────────────────────────────
+    # All misclassified 
     mis_all = df_results[df_results["actual"] != df_results["predicted"]]
 
     print("\n===== ALL MISCLASSIFIED URLS =====")
     print(mis_all)
     print("Total test samples:", len(df_results))
     print("Total misclassified:", len(mis_all))
-    # ── Class-wise breakdown ───────────────────────────────────────────────────
+    # Class-wise breakdown
     mis_list = df_results[(df_results["actual"] == "list") & (df_results["predicted"] != "list")]
     mis_detail = df_results[(df_results["actual"] == "detail") & (df_results["predicted"] != "detail")]
     mis_others = df_results[(df_results["actual"] == "others") & (df_results["predicted"] != "others")]
@@ -410,13 +404,13 @@ def main(no_gridsearch: bool, show_results: bool):
     print("\n===== OTHERS → WRONG =====")
     print(mis_others)
 
-    # ── Save all outputs ───────────────────────────────────────────────────────
+    # Save all outputs
     mis_all.to_csv("misclassified_all.csv", index=False)
     mis_list.to_csv("misclassified_list.csv", index=False)
     mis_detail.to_csv("misclassified_detail.csv", index=False)
     mis_others.to_csv("misclassified_others.csv", index=False)
 
-    # ── Always print plain-text results to stdout FIRST (never gets lost) ─────
+    # Always print plain-text results to stdout FIRST (never gets lost)
     print("\n" + "=" * 60)
     print("  TRAINING RESULTS")
     print("=" * 60)
@@ -459,7 +453,6 @@ def main(no_gridsearch: bool, show_results: bool):
     print("=" * 60 + "\n")
     sys.stdout.flush()
 
-    # ── Also print Rich tables (nice formatting if terminal supports it) ───────
     table = Table(title="Classification Report", show_header=True)
     table.add_column("Class", style="bold")
     table.add_column("Precision", style="cyan")
@@ -495,7 +488,7 @@ def main(no_gridsearch: bool, show_results: bool):
         cm_table.add_row(*row)
     console.print(cm_table)
 
-    # ── SHAP importance ───────────────────────────────────────────────────────
+    # SHAP importance 
     importance = _shap_importance(model, X_test, feature_cols)
     console.print("\n[bold]Top 20 features by SHAP importance:[/bold]")
     imp_table = Table(show_header=True)
@@ -506,7 +499,7 @@ def main(no_gridsearch: bool, show_results: bool):
         imp_table.add_row(str(rank), item["feature"], f"{item['importance']:.6f}")
     console.print(imp_table)
 
-    # ── Save artefacts ────────────────────────────────────────────────────────
+    # Save artefacts
     model_path = models_dir / "classifier.joblib"
     le_path = models_dir / "label_encoder.joblib"
     features_path = models_dir / "feature_columns.json"

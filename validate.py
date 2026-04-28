@@ -1,7 +1,4 @@
 """
-validate.py
-───────────
-CLI command: python validate.py
 
 Runs a full pre-flight check of your environment BEFORE you start the pipeline.
 Catches all common problems early so you don't discover them mid-scrape.
@@ -82,7 +79,7 @@ def check_packages() -> bool:
             _check(f"Package: {pkg}", False, "Not installed — run: pip install -r requirements.txt")
             all_ok = False
 
-    # Check playwright-stealth separately (optional but recommended)
+    # Check playwright-stealth separately 
     try:
         import playwright_stealth
         _check("Package: playwright-stealth", True, "(stealth mode enabled)")
@@ -311,7 +308,7 @@ def main(skip_smoke: bool, skip_playwright: bool):
     console.print("\n[bold]8. Model Status[/bold]")
     check_model()  # Not added to results — model not required at this stage
 
-    # ── Final verdict ─────────────────────────────────────────────────────────
+    #  Final verdict 
     console.rule()
     critical_failures = sum(1 for r in results if not r)
     if critical_failures == 0:

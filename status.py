@@ -1,7 +1,4 @@
 """
-status.py
-─────────
-CLI command: python status.py
 
 Prints a live dashboard of the entire pipeline state:
   - Checkpoint summary (scrape + extract status per label)

@@ -1,7 +1,5 @@
 """
-scrape_run.py
-─────────────
-CLI command: python scrape_run.py --input data/training_urls.csv
+python scrape_run.py --input data/training_urls.csv
 
 What it does:
   1. Reads the training CSV (columns: url, label)
@@ -92,7 +90,7 @@ def main(input_csv: str, dry_run: bool):
     logger.info(f"Input CSV: {csv_path}")
     logger.info(f"Output root: {output_root}")
 
-    # ── Load ──────────────────────────────────────────────────────────────────
+    # Load 
     all_urls = _load_urls_from_csv(csv_path)
     checkpoint = load_checkpoint()
     new_urls = _filter_new_urls(all_urls, checkpoint)
@@ -109,7 +107,7 @@ def main(input_csv: str, dry_run: bool):
             console.print(f"  ... and {len(new_urls) - 20} more")
         return
 
-    # ── Build task list ────────────────────────────────────────────────────────
+    #  Build task list 
     tasks = []
     for item in new_urls:
         folder = url_to_folder_name(item["url"])
@@ -139,10 +137,10 @@ def main(input_csv: str, dry_run: bool):
 
     console.print(f"\n[bold]Scraping [cyan]{len(tasks)}[/cyan] URLs with concurrency=[cyan]{cfg['scraper']['concurrency']}[/cyan]...\n")
 
-    # ── Scrape ────────────────────────────────────────────────────────────────
+    #  Scrape
     results = asyncio.run(run_scraper(tasks, output_root))
 
-    # ── Update checkpoint / mapping ───────────────────────────────────────────
+    # Update checkpoint / mapping 
     success_count = failed_count = 0
     for t in tasks:
         url = t["url"]
@@ -174,7 +172,7 @@ def main(input_csv: str, dry_run: bool):
             "scrape_completed_at": now_iso(),
         })
 
-    # ── Summary ───────────────────────────────────────────────────────────────
+    #  Summary 
     table = Table(title="Scraping Summary", show_header=True)
     table.add_column("Metric", style="bold")
     table.add_column("Count", style="cyan")

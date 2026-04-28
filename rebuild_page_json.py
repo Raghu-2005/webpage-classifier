@@ -1,10 +1,4 @@
 """
-rebuild_page_json.py
-────────────────────
-Rebuilds rich page.json from existing raw.html files WITHOUT re-scraping.
-
-Run this ONCE after upgrading scraper.py to get full page.json for all
-your existing scraped pages.
 
 Usage:
     python rebuild_page_json.py              # rebuild all output/ folders
@@ -25,7 +19,6 @@ What it produces (page.json v2):
     images       → [{src, alt, width, height, loading}, ...]  ← ALL images
     body_text    → full visible text (first 50k chars)
 
-Does NOT affect features.json or the model — purely for debugging/verification.
 """
 
 from __future__ import annotations
@@ -47,7 +40,7 @@ logger = get_logger("rebuild_page_json")
 cfg    = load_config()
 
 
-# ─── Core parser ─────────────────────────────────────────────────────────────
+#  Core parser 
 
 def build_rich_page_json(html: str, url: str) -> Dict:
     """
@@ -62,11 +55,11 @@ def build_rich_page_json(html: str, url: str) -> Dict:
     parsed = urlparse(url)
     domain = parsed.netloc
 
-    # ── Title ─────────────────────────────────────────────────────────────────
+    # Title 
     title_tag = soup.find("title")
     title     = title_tag.get_text(strip=True) if title_tag else ""
 
-    # ── Meta tags ─────────────────────────────────────────────────────────────
+    #  Meta tags 
     meta: Dict[str, str] = {}
     for m in soup.find_all("meta"):
         name    = m.get("name") or m.get("property") or m.get("itemprop")
@@ -74,18 +67,18 @@ def build_rich_page_json(html: str, url: str) -> Dict:
         if name and content:
             meta[name] = content
 
-    # ── Open Graph ────────────────────────────────────────────────────────────
+    # Open Graph 
     open_graph: Dict[str, str] = {}
     for m in soup.find_all("meta", property=True):
         prop = m.get("property", "")
         if prop.startswith("og:"):
             open_graph[prop] = m.get("content", "")
 
-    # ── Canonical ─────────────────────────────────────────────────────────────
+    # Canonical 
     canon_tag = soup.find("link", rel="canonical")
     canonical = canon_tag.get("href") if canon_tag else None
 
-    # ── Schema.org JSON-LD ────────────────────────────────────────────────────
+    # Schema.org JSON-LD 
     schema_raw: List = []
     schema_types: List[str] = []
 
@@ -113,7 +106,7 @@ def build_rich_page_json(html: str, url: str) -> Dict:
     _collect_types(schema_raw)
     schema_org = {"raw": schema_raw, "types_found": schema_types}
 
-    # ── Headings ──────────────────────────────────────────────────────────────
+    #  Headings 
     headings: Dict[str, List[str]] = {}
     for tag in ["h1", "h2", "h3", "h4"]:
         headings[tag] = [
@@ -122,7 +115,7 @@ def build_rich_page_json(html: str, url: str) -> Dict:
             if h.get_text(strip=True)
         ]
 
-    # ── Pagination ────────────────────────────────────────────────────────────
+    #  Pagination 
     rel_links: List[Dict] = []
     has_next = has_prev = False
     for link in soup.find_all("link", rel=True):
@@ -141,7 +134,7 @@ def build_rich_page_json(html: str, url: str) -> Dict:
 
     pagination = {"has_next": has_next, "has_prev": has_prev, "rel_links": rel_links}
 
-    # ── All links ─────────────────────────────────────────────────────────────
+    #  All links 
     links: List[Dict] = []
     for a in soup.find_all("a", href=True):
         href = a.get("href", "").strip()
@@ -169,7 +162,7 @@ def build_rich_page_json(html: str, url: str) -> Dict:
             "rel":         rel,
         })
 
-    # ── All images ────────────────────────────────────────────────────────────
+    # All images 
     images: List[Dict] = []
     for img in soup.find_all("img"):
         src = (
@@ -188,7 +181,7 @@ def build_rich_page_json(html: str, url: str) -> Dict:
             "loading": img.get("loading", ""),
         })
 
-    # ── Forms ─────────────────────────────────────────────────────────────────
+    # Forms 
     forms: List[Dict] = []
     for form in soup.find_all("form"):
         inputs = []
@@ -205,7 +198,7 @@ def build_rich_page_json(html: str, url: str) -> Dict:
             "inputs": inputs,
         })
 
-    # ── Body text (visible text only) ────────────────────────────────────────
+    #  Body text (visible text only) 
     # Remove script/style/noscript from a clone for clean text
     body_soup = BeautifulSoup(html, "lxml")
     for tag in body_soup(["script", "style", "noscript", "svg"]):
@@ -214,7 +207,7 @@ def build_rich_page_json(html: str, url: str) -> Dict:
     # Normalise whitespace
     body_text = " ".join(body_text.split())[:50000]
 
-    # ── Counts ────────────────────────────────────────────────────────────────
+    # Counts 
     counts = {
         "links":            len(links),
         "images":           len(images),
@@ -255,7 +248,7 @@ def build_rich_page_json(html: str, url: str) -> Dict:
     }
 
 
-# ─── Folder walker ────────────────────────────────────────────────────────────
+#  Folder walker
 
 def _collect_folders(output_root: Path) -> List[Dict]:
     """
@@ -333,7 +326,7 @@ def _collect_predicted_folders(predicted_root: Path) -> List[Dict]:
     return folders
 
 
-# ─── CLI ─────────────────────────────────────────────────────────────────────
+# CLI 
 
 @click.command()
 @click.option("--predicted", is_flag=True, help="Also rebuild predicted/ folders")
