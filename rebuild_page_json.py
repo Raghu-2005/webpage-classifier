@@ -448,6 +448,5 @@ def main(predicted: bool, dry_run: bool, force: bool):
     console.print("  • All forms with their inputs")
     console.print("\n[dim]Feature extraction is unchanged — this is for debugging only.[/dim]")
 
-
 if __name__ == "__main__":
     main()
