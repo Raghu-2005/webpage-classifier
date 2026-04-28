@@ -332,6 +332,5 @@ def main(url, force, debug):
             console.print(f"  [red]Error: {e}[/red]")
             logger.exception(f"Prediction error for {raw}")
 
-
 if __name__ == "__main__":
     main()
