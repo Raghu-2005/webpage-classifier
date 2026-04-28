@@ -189,6 +189,5 @@ def main(input_csv: str, dry_run: bool):
 
     console.print("\n[green]Scraping complete. Run [bold]python extract_run.py[/bold] next.")
 
-
 if __name__ == "__main__":
     main()

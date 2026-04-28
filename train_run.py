@@ -528,6 +528,5 @@ def main(no_gridsearch: bool, show_results: bool):
     console.print(f"[green]✓ Training report → {report_path}")
     console.print("\n[bold]Run [cyan]python predict_run.py --url <URL>[/cyan] to classify a webpage.")
 
-
 if __name__ == "__main__":
     main()

@@ -1,5 +1,4 @@
 """
-
 Runs a full pre-flight check of your environment BEFORE you start the pipeline.
 Catches all common problems early so you don't discover them mid-scrape.
 

@@ -348,6 +348,5 @@ def main(failed: bool):
                     console.print(f"    extract: {extract_r}")
         console.print()
 
-
 if __name__ == "__main__":
     main()

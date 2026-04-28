@@ -159,6 +159,5 @@ def main(
 
     console.print("\n[green bold]Reset complete.[/green bold]")
 
-
 if __name__ == "__main__":
     main()
