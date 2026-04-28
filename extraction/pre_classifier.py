@@ -83,6 +83,7 @@ SCHEMA_TO_CLASS: Dict[str, str] = {
     "drug":                "detail",
     "howto":               "detail",
     "faqpage":             "detail",
+    "FAQPage":             "detail",
     "qapage":              "detail",
     "softwareapplication": "detail",
     "videoobject":         "detail",
