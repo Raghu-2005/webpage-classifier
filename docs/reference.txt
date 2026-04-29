@@ -351,3 +351,8 @@ if need to reset all the features and then again extract and train the model
 python reset.py --extract --yes
 python extract_run.py
 python train_run.py
+
+python eval_pipeline.py --verbose          # show ALL misclassified for both modes
+python eval_pipeline.py --split 0.3        # larger test set
+python eval_pipeline.py --export out.csv   # export full per-URL breakdown to CSV
+python eval_pipeline.py --no-html          # skip pre-classifier, ML only report
