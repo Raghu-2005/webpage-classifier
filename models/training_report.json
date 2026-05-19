@@ -1,8 +1,8 @@
 {
-  "trained_at": "2026-04-29T09:30:17.949325+00:00",
+  "trained_at": "2026-05-19T06:53:52.516648+00:00",
   "num_training_samples": 1199,
   "num_test_samples": 300,
-  "num_features": 200,
+  "num_features": 211,
   "classes": [
     "detail",
     "list",
@@ -14,7 +14,7 @@
     "others": 461
   },
   "evaluation": {
-    "accuracy": 0.9466666666666667,
+    "accuracy": 0.9433333333333334,
     "classification_report": {
       "detail": {
         "precision": 0.9797979797979798,
@@ -23,28 +23,28 @@
         "support": 99.0
       },
       "list": {
-        "precision": 0.9523809523809523,
-        "recall": 0.9174311926605505,
-        "f1-score": 0.9345794392523364,
+        "precision": 0.9607843137254902,
+        "recall": 0.8990825688073395,
+        "f1-score": 0.9289099526066351,
         "support": 109.0
       },
       "others": {
-        "precision": 0.90625,
-        "recall": 0.9456521739130435,
-        "f1-score": 0.925531914893617,
+        "precision": 0.8888888888888888,
+        "recall": 0.9565217391304348,
+        "f1-score": 0.9214659685863874,
         "support": 92.0
       },
-      "accuracy": 0.9466666666666667,
+      "accuracy": 0.9433333333333334,
       "macro avg": {
-        "precision": 0.9461429773929774,
-        "recall": 0.9476271154571912,
-        "f1-score": 0.9466364446479778,
+        "precision": 0.9431570608041197,
+        "recall": 0.945134095911918,
+        "f1-score": 0.9433913003303341,
         "support": 300.0
       },
       "weighted avg": {
-        "precision": 0.947281746031746,
-        "recall": 0.9466666666666667,
-        "f1-score": 0.9467269834957248,
+        "precision": 0.9450108932461874,
+        "recall": 0.9433333333333334,
+        "f1-score": 0.9434201798135696,
         "support": 300.0
       }
     },
@@ -56,13 +56,13 @@
       ],
       [
         1,
-        100,
-        8
+        98,
+        10
       ],
       [
         1,
-        4,
-        87
+        3,
+        88
       ]
     ]
   },
@@ -83,18 +83,18 @@
     "grow_policy": null,
     "importance_type": null,
     "interaction_constraints": null,
-    "learning_rate": 0.05,
+    "learning_rate": 0.1,
     "max_bin": null,
     "max_cat_threshold": null,
     "max_cat_to_onehot": null,
     "max_delta_step": null,
-    "max_depth": 6,
+    "max_depth": 8,
     "max_leaves": null,
     "min_child_weight": null,
     "missing": NaN,
     "monotone_constraints": null,
     "multi_strategy": null,
-    "n_estimators": 200,
+    "n_estimators": 400,
     "n_jobs": null,
     "num_parallel_tree": null,
     "random_state": 42,
@@ -111,123 +111,123 @@
   "top_features": [
     {
       "feature": "url_path_depth",
-      "importance": 0.404947
+      "importance": 0.556335
     },
     {
       "feature": "avg_paragraph_length",
-      "importance": 0.282752
-    },
-    {
-      "feature": "external_link_ratio",
-      "importance": 0.185351
-    },
-    {
-      "feature": "url_has_any_param",
-      "importance": 0.180018
+      "importance": 0.349887
     },
     {
       "feature": "tag_h3_count",
-      "importance": 0.177838
+      "importance": 0.266271
     },
     {
-      "feature": "others_path_signal",
-      "importance": 0.174632
-    },
-    {
-      "feature": "tag_tr_count",
-      "importance": 0.161111
-    },
-    {
-      "feature": "numeric_token_density",
-      "importance": 0.1413
-    },
-    {
-      "feature": "academic_listing_signal",
-      "importance": 0.128116
+      "feature": "external_link_ratio",
+      "importance": 0.256874
     },
     {
       "feature": "title_word_count",
-      "importance": 0.117602
+      "importance": 0.254353
     },
     {
-      "feature": "internal_anchor_links",
-      "importance": 0.096691
+      "feature": "avg_sentence_length",
+      "importance": 0.232925
     },
     {
-      "feature": "url_depth_normalized",
-      "importance": 0.096369
+      "feature": "tag_tr_count",
+      "importance": 0.202235
     },
     {
-      "feature": "content_links",
-      "importance": 0.092118
+      "feature": "url_has_any_param",
+      "importance": 0.193835
     },
     {
-      "feature": "landing_page_score",
-      "importance": 0.091746
+      "feature": "numeric_token_density",
+      "importance": 0.180464
     },
     {
-      "feature": "composite_listing_score",
-      "importance": 0.090032
-    },
-    {
-      "feature": "anchor_text_diversity",
-      "importance": 0.086766
-    },
-    {
-      "feature": "entity_name_repetition",
-      "importance": 0.079822
-    },
-    {
-      "feature": "tag_h2_count",
-      "importance": 0.078372
+      "feature": "others_path_signal",
+      "importance": 0.173645
     },
     {
       "feature": "composite_others_score",
-      "importance": 0.07209
+      "importance": 0.164797
+    },
+    {
+      "feature": "academic_listing_signal",
+      "importance": 0.160582
+    },
+    {
+      "feature": "internal_anchor_links",
+      "importance": 0.160057
+    },
+    {
+      "feature": "content_links",
+      "importance": 0.152584
+    },
+    {
+      "feature": "composite_listing_score",
+      "importance": 0.146877
+    },
+    {
+      "feature": "landing_page_score",
+      "importance": 0.141134
+    },
+    {
+      "feature": "tag_h2_count",
+      "importance": 0.138312
+    },
+    {
+      "feature": "entity_name_repetition",
+      "importance": 0.134809
+    },
+    {
+      "feature": "content_density",
+      "importance": 0.110686
+    },
+    {
+      "feature": "url_depth_normalized",
+      "importance": 0.109369
     },
     {
       "feature": "li_density",
-      "importance": 0.067835
-    },
-    {
-      "feature": "tag_table_count",
-      "importance": 0.067148
-    },
-    {
-      "feature": "figure_count",
-      "importance": 0.061628
-    },
-    {
-      "feature": "total_links",
-      "importance": 0.057638
-    },
-    {
-      "feature": "internal_links",
-      "importance": 0.057091
+      "importance": 0.101399
     },
     {
       "feature": "rich_paragraph_count",
-      "importance": 0.056492
+      "importance": 0.101256
     },
     {
-      "feature": "has_publish_date",
-      "importance": 0.056092
+      "feature": "anchor_text_diversity",
+      "importance": 0.099372
     },
     {
-      "feature": "navigation_density_ratio",
-      "importance": 0.051428
+      "feature": "text_concentration_ratio",
+      "importance": 0.094601
     },
     {
-      "feature": "tag_p_count",
-      "importance": 0.04921
+      "feature": "total_links",
+      "importance": 0.091844
     },
     {
-      "feature": "price_mention_count",
-      "importance": 0.049199
+      "feature": "boilerplate_ratio",
+      "importance": 0.078625
     },
     {
-      "feature": "h3_count",
-      "importance": 0.045289
+      "feature": "unique_word_ratio",
+      "importance": 0.076897
+    },
+    {
+      "feature": "link_to_word_ratio",
+      "importance": 0.075891
+    },
+    {
+      "feature": "figure_count",
+      "importance": 0.072265
+    },
+    {
+      "feature": "directory_detail_signals",
+      "importance": 0.071223
     }
   ]
 }
