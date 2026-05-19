@@ -1,17 +1,17 @@
 """
+Pre-classifier v2.0
+===================
+Priority order (ALL steps now implemented — Step 3 RSS was missing in v1):
 
-Priority order :
   1. Error / blocked page detection   → "others" + error flag      (conf 0.97)
   2. Schema.org / JSON-LD             → direct classification       (conf 0.96)
-  3. RSS / Atom feed link             → list (skipped for listing URLs) (conf 0.93)
+  3. RSS / Atom feed link             → list (skipped for listing URLs) (conf 0.93)  ← FIXED
   4. Open Graph type                  → direct (skipped for listing URLs) (conf 0.93)
   5. Twitter Card = player            → detail                      (conf 0.93)
   6. Strong listing (3-of-5 signals)  → list                        (conf 0.90)
   7. Domain-specific rules            → job boards, social browse   (conf 0.86–0.90)
   8. Strong 'others' signals          → others (with guards)        (conf 0.90)
   ── Everything else → ML model ──
-
-
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ from pipeline.utils import get_logger
 logger = get_logger("pre_classifier")
 
 CONF_SCHEMA  = 0.96
+CONF_RSS     = 0.93
 CONF_OG      = 0.93
 CONF_TWITTER = 0.93
 CONF_STRONG  = 0.90
@@ -54,7 +55,6 @@ ERROR_SIGNALS = [
     r"\bare you a robot\b",
     r"\bverify you are human\b",
 ]
-
 
 SCHEMA_TO_CLASS: Dict[str, str] = {
     "product":             "detail",
@@ -111,31 +111,21 @@ OG_TYPE_PREFIX_MAP: List[Tuple[str, str, float]] = [
 ]
 
 
-#  URL Listing-Intent Helper 
+# ── URL Listing-Intent Helper ──────────────────────────────────────────────────
 def _is_listing_url(url: str) -> bool:
     """
-    Returns True when the URL structure unambiguously signals a search,
-    browse, or listing page — regardless of metadata tags.
-
-    Used to skip RSS and OG rules when the URL already declares listing intent.
-    A search page that exposes an RSS feed is still a search page — the RSS
-    rule should not force it to "list" with high confidence.
-
-    Returns False for documentation pages, blog posts, product pages — even
-    if they have rel=next or an RSS feed, those are not listing pages.
+    Returns True when URL structure unambiguously signals search/browse/listing.
+    Used to skip RSS and OG rules when URL already declares listing intent.
     """
     parsed = urlparse(url)
     path   = parsed.path.lower()
     query  = parsed.query.lower()
     netloc = parsed.netloc.lower()
 
-    # Explicit search/filter query parameters
     if re.search(r"(^|&)(q|query|search|s|find|keyword|term|k|field-keywords)=", query):
         return True
     if re.search(r"(^|&)(type|category|filter|sort|page|offset|c)=", query):
         return True
-
-    # Path contains a listing-intent segment
     if re.search(
         r"/(search|results?|listings?|categories|category|browse|"
         r"discover|explore|publications?|exhibitions?|datasets?|"
@@ -143,34 +133,28 @@ def _is_listing_url(url: str) -> bool:
         path
     ):
         return True
-
-    # Path ends with a listing noun (terminal segment)
     if re.search(
         r"/(jobs|careers|vacancies|openings|products|items|"
         r"hotels|recipes|articles|posts|news|papers?|reports?)/?$",
         path
     ):
         return True
-
-    # Job board subdomains — entire site is job listings
     if re.search(
         r"(boards\.|jobs\.|careers\.)(greenhouse\.io|lever\.co|"
         r"workable\.com|smartrecruiters\.com)",
         netloc
     ):
         return True
-
     return False
 
 
-# Schema.org extraction 
+# ── Schema.org extraction ──────────────────────────────────────────────────────
 def _extract_schema_types(soup: BeautifulSoup) -> List[str]:
     types: List[str] = []
     for script in soup.find_all("script", type="application/ld+json"):
         try:
             raw  = script.string or ""
             data = json.loads(raw)
-
             def _collect(obj):
                 if isinstance(obj, dict):
                     t = obj.get("@type", "")
@@ -187,17 +171,15 @@ def _extract_schema_types(soup: BeautifulSoup) -> List[str]:
             _collect(data)
         except Exception:
             pass
-
     for el in soup.find_all(itemtype=True):
         raw   = el.get("itemtype", "")
         parts = raw.lower().rstrip("/").split("/")
         if parts:
             types.append(parts[-1].strip())
-
     return [t for t in types if t]
 
 
-# Error page detection 
+# ── Error page detection ───────────────────────────────────────────────────────
 def _detect_error_page(html: str, title: str, http_status: Optional[int]) -> bool:
     if http_status and http_status >= 400:
         return True
@@ -208,11 +190,11 @@ def _detect_error_page(html: str, title: str, http_status: Optional[int]) -> boo
     return False
 
 
-#  RSS / Atom feed 
+# ── Step 3: RSS / Atom feed link ───────────────────────────────────────────────
 def _has_feed_link(soup: BeautifulSoup) -> bool:
     """
-    RSS or Atom <link> in <head> signals content aggregator / listing page.
-    SKIPPED when _is_listing_url() returns True — search pages that also
+    RSS or Atom <link> in <head> signals a content aggregator / listing page.
+    Only fires when _is_listing_url() is False — search pages that also
     expose RSS feeds should go to ML, not be forced to "list".
     Confidence: 0.93
     """
@@ -227,23 +209,17 @@ def _has_feed_link(soup: BeautifulSoup) -> bool:
     return False
 
 
-# Strong listing pattern 
+# ── Strong listing pattern ─────────────────────────────────────────────────────
 def _strong_listing_pattern(soup: BeautifulSoup, body_text: str) -> bool:
-    """
-    Requires 3 of 5 structural listing signals simultaneously.
-    Correct on: Amazon, Flipkart, IMDB search, Glassdoor jobs, Booking.com,
-    Google search results.
-    """
+    """Requires 3 of 5 structural listing signals simultaneously."""
     lower   = body_text.lower()
     signals = 0
 
-    # Signal 1: pagination UI
     if (re.search(r"\b(next\s*page|previous\s*page|load\s*more|showing\s+\d+)", lower) or
             soup.find(class_=re.compile(r"\bpaginat", re.I)) or
             soup.find(attrs={"aria-label": re.compile(r"pagination", re.I)})):
         signals += 1
 
-    # Signal 2: result count text
     if re.search(
         r"\b(\d[\d,]*)\s*(results?|listings?|items?\s+found|products?\s+found|"
         r"jobs?\s+found|matches|properties?\s+found)\b",
@@ -251,12 +227,10 @@ def _strong_listing_pattern(soup: BeautifulSoup, body_text: str) -> bool:
     ):
         signals += 1
 
-    # Signal 3: filter/facet UI
     if (soup.find(class_=re.compile(r"\b(filter|facet|refine)\b", re.I)) or
             soup.find(id=re.compile(r"\b(filter|facet)\b", re.I))):
         signals += 1
 
-    # Signal 4: repeated sibling containers
     from bs4 import Tag as BsTag
     repeated = 0
     for container in soup.find_all(["ul", "ol", "div", "section"])[:200]:
@@ -270,7 +244,6 @@ def _strong_listing_pattern(soup: BeautifulSoup, body_text: str) -> bool:
     if repeated >= 2:
         signals += 1
 
-    # Signal 5: grid/card CSS class names
     grid_pat = re.compile(
         r"\b(product[-_]?(?:item|card|tile)|result[-_]?item|"
         r"listing[-_]?item|job[-_]?item|card[-_]?item)\b", re.I
@@ -285,17 +258,13 @@ def _strong_listing_pattern(soup: BeautifulSoup, body_text: str) -> bool:
     return signals >= 3
 
 
-# Domain-specific rules 
+# ── Domain-specific rules ──────────────────────────────────────────────────────
 def _domain_specific_rules(
     url: str, body_text: str, soup: BeautifulSoup
 ) -> Optional[Tuple[str, float, str]]:
-    """
-    High-confidence domain-specific patterns for platforms with known structure.
-    """
     lower_url  = url.lower()
     lower_body = body_text.lower()
 
-    # Job boards 
     job_board_domains = {
         "lever.co":              CONF_STRONG,
         "greenhouse.io":         CONF_STRONG,
@@ -319,7 +288,6 @@ def _domain_specific_rules(
             if "boards.greenhouse.io" in lower_url or "jobs.lever.co" in lower_url:
                 return ("list", conf, f"job_board_domain={domain}")
 
-    # API / Developer documentation — specific well-known platforms only
     api_doc_tuples = [
         ("docs.python.org",       "Python docs",  "/library/"),
         ("developer.mozilla.org", "MDN Docs",     "/en-US/docs/"),
@@ -337,18 +305,15 @@ def _domain_specific_rules(
                 )):
                     return ("detail", 0.92, f"api_doc_platform={name}")
 
-    # Academic / research listing pages
     if "arxiv.org" in lower_url and re.search(r"/(year|list|search|find)/", lower_url):
         return ("list", 0.88, "arxiv_listings")
 
-    # Wikipedia — individual article pages only
     if "wikipedia.org" in lower_url and "/wiki/" in lower_url \
             and "/wiki/Special:" not in lower_url:
         after_wiki = lower_url.split("/wiki/")[1]
         if ":" not in after_wiki or "/" not in after_wiki:
             return ("detail", 0.85, "wikipedia_article")
 
-    # Social media category / browse / discover pages
     social_browse_domains = {
         "vimeo.com/categories":    "video_categories",
         "vimeo.com/category":      "video_category",
@@ -364,7 +329,6 @@ def _domain_specific_rules(
         if domain in lower_url:
             return ("list", 0.88, f"social_browse={type_name}")
 
-    # Generic browse/discover/exhibition paths on any domain
     browse_path_pat = re.compile(
         r"/(categories|category|discover|exhibitions?|browse|collections?|"
         r"explore|shows?|events?|publications?|archives?)/?$",
@@ -378,7 +342,7 @@ def _domain_specific_rules(
     return None
 
 
-# Main pre_classify function 
+# ── Main pre_classify function ─────────────────────────────────────────────────
 def pre_classify(
     html: str,
     url: str,
@@ -386,10 +350,7 @@ def pre_classify(
 ) -> Optional[Dict]:
     """
     Run deterministic pre-classification before the ML model.
-
-    Returns dict(label, confidence, method, reason) or None.
-    None = no unambiguous rule fired = caller runs ML model.
-
+    Returns None if no rule fires — caller then runs ML model.
     Key design principle: when in doubt, return None.
     """
     if not html:
@@ -411,10 +372,9 @@ def pre_classify(
     lower_html = html[:3000].lower()
     lower      = body_text.lower()
 
-    # Pre-compute listing URL intent — shared by RSS, OG, others_signals rules
     listing_url = _is_listing_url(url)
 
-    # Step 1: Error / blocked page 
+    # ── Step 1: Error / blocked page ──────────────────────────────────────────
     if _detect_error_page(lower_html, title, http_status):
         logger.info(f"Error page detected: {url}")
         return {
@@ -423,8 +383,7 @@ def pre_classify(
             "is_error_page": True,
         }
 
-    # Step 2: Schema.org JSON-LD 
-    # Developer-declared ground truth — most reliable signal available.
+    # ── Step 2: Schema.org JSON-LD ────────────────────────────────────────────
     schema_types = _extract_schema_types(soup)
     if schema_types:
         for stype in schema_types:
@@ -438,7 +397,16 @@ def pre_classify(
                     "schema_types": schema_types,
                 }
 
-    
+    # ── Step 3: RSS / Atom feed link ──────────────────────────────────────────
+    # A page advertising a content feed is a collection/listing page.
+    # Skip when URL already signals a search/listing page — those are ML's job.
+    if not listing_url and _has_feed_link(soup):
+        logger.info(f"RSS/Atom feed link → list: {url}")
+        return {
+            "label": "list", "confidence": CONF_RSS,
+            "method": "rss_feed",
+            "reason": "page_has_rss_or_atom_feed_link",
+        }
 
     # ── Step 4: Open Graph type ───────────────────────────────────────────────
     if not listing_url:
@@ -453,8 +421,7 @@ def pre_classify(
                         "method": "open_graph", "reason": f"og:type={og_type}",
                     }
 
-    # Step 5: Twitter card = player 
-    # Very specific — only playable media items set this. Reliable regardless of URL.
+    # ── Step 5: Twitter card = player ─────────────────────────────────────────
     tc_tag  = soup.find("meta", attrs={"name": "twitter:card"})
     tc_type = (tc_tag.get("content", "") if tc_tag else "").lower().strip()
     if tc_type == "player":
@@ -464,7 +431,7 @@ def pre_classify(
             "method": "twitter_card", "reason": "twitter:card=player",
         }
 
-    # Step 6: Strong listing pattern (3-of-5 structural signals) 
+    # ── Step 6: Strong listing pattern (3-of-5 structural signals) ───────────
     if _strong_listing_pattern(soup, body_text):
         logger.info(f"Strong listing pattern → list: {url}")
         return {
@@ -472,7 +439,7 @@ def pre_classify(
             "method": "strong_listing", "reason": "multi_signal_listing_dom",
         }
 
-    # Step 7: Domain-specific rules 
+    # ── Step 7: Domain-specific rules ────────────────────────────────────────
     domain_result = _domain_specific_rules(url, body_text, soup)
     if domain_result:
         cls, conf, reason = domain_result
@@ -482,18 +449,13 @@ def pre_classify(
             "method": "domain_specific", "reason": reason,
         }
 
-    # Step 8: Strong 'others' signals 
-    
-    
-    # THREE GUARDS prevent false positives
-    # Guard A — Listing URL escape
-    # Guard B — Detail page escape
-    # Guard C — Marketing vocabulary requirement
-
-
+    # ── Step 8: Strong 'others' signals ──────────────────────────────────────
+    # THREE GUARDS prevent false positives:
+    #   Guard A — Listing URL escape (listing_url check above)
+    #   Guard B — Detail page escape (price/author/specs found → skip)
+    #   Guard C — Marketing vocabulary requirement (must be a SaaS/landing page)
     if not listing_url:
 
-        # Guard B: Check for detail-page signals in main content
         has_price = bool(re.search(
             r"(\$|€|£|¥|₹|usd|eur|gbp)\s*[\d,]+|[\d,]+\s*(\$|€|£|¥|₹)|"
             r"\bprice[:\s]|₹\s*\d",
@@ -521,16 +483,8 @@ def pre_classify(
             re.search(r"\b(by\s+\w+|author[:\s]|written\s+by|published)\b", lower)
         )
 
-        # If any detail signal fires → skip others rule, let ML decide
         detail_guard = has_price or has_buy_cta or has_rating or has_specs or has_author_date
-        if detail_guard:
-            logger.debug(
-                f"Detail-page guard skipped others rule "
-                f"(price={has_price}, buy={has_buy_cta}, rating={has_rating}, "
-                f"specs={has_specs}, author_date={has_author_date}): {url}"
-            )
-        else:
-            # Compute others signals
+        if not detail_guard:
             legal_signals = sum([
                 bool(re.search(r"\bprivacy\s+policy\b", lower)),
                 bool(re.search(r"\bterms\s+of\s+service\b", lower)),
@@ -541,8 +495,6 @@ def pre_classify(
                 bool(re.search(r"\btrademark\b", lower)),
                 bool(re.search(r"\bcompliance\b", lower)),
             ])
-            # Removed "careers?", "help", "support" — appear in almost every
-            # site footer, causing false "others" on listing and detail pages.
             info_signals = sum([
                 bool(re.search(r"\babout\s+us\b", lower)),
                 bool(re.search(r"\bcontact\s+us\b", lower)),
@@ -569,7 +521,6 @@ def pre_classify(
                 bool(re.search(r"\bwatch\s+video\b", lower)),
                 bool(re.search(r"\bexplore\s+now\b", lower)),
             ])
-            # Guard C: Marketing vocabulary (true SaaS/landing pages only)
             marketing_signals = sum([
                 bool(re.search(r"\bpricing\b", lower)),
                 bool(re.search(r"\bplans?\b", lower)),
@@ -582,11 +533,6 @@ def pre_classify(
             ])
 
             total_info = legal_signals + info_signals + faq_signals
-
-            # Rule fires only when:
-            #   • Strong info/legal/faq signals (≥3)
-            #   • AND marketing vocabulary present (page is about a service/product LINE)
-            #   • AND multiple CTAs (converting visitors, not selling one specific item)
             if total_info >= 3 and cta_signals >= 2 and marketing_signals >= 1:
                 logger.info(f"Strong 'others' signals → others: {url}")
                 return {
@@ -599,6 +545,6 @@ def pre_classify(
                     ),
                 }
 
-    # No rule matched → ML model 
+    # ── No rule matched → ML model ────────────────────────────────────────────
     logger.debug(f"No rule matched → ML model: {url}")
     return None
