@@ -97,8 +97,8 @@ async def _setup_context(browser: Browser) -> BrowserContext:
     context = await browser.new_context(
         user_agent=ua,
         viewport={"width": vw, "height": vh},
-        locale="en-US",
-        timezone_id="America/New_York",
+        locale="en-IN",
+        timezone_id="Asia/Kolkata",
         java_script_enabled=True,
         accept_downloads=False,
         extra_http_headers={
@@ -521,6 +521,7 @@ async def run_scraper(
             headless=S["headless"],
             args=[
                 "--no-sandbox",
+                "--disable-http2",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-blink-features=AutomationControlled",
