@@ -1,12 +1,20 @@
 """
-Design philosophy:
-  - NO single feature dominates — we extract structural, content, semantic,
-    URL-pattern, and ratio-based features so the model can triangulate.
-  - Features are grouped into pillars. Each pillar captures a different
-    "signal" for list / detail / others.
-  - Dead features (constant across classes) are excluded.
-  - Fallback to URL-pattern features when HTML is too thin.
-
+Feature Extractor v7.0
+======================
+FIXES vs v6:
+  1. REMOVED duplicate feature computation — grid_class_count, has_grid_layout,
+     total_links, anchor_text_diversity were computed TWICE with different logic.
+     The second overwrite in _listing_features() was silently corrupting values.
+     Each feature is now computed exactly once in its correct pillar.
+  2. internal_anchor_links moved to _link_features (its natural home).
+  3. ADDED mentor-spec missing features:
+       content_density, text_to_html_ratio, dom_nesting_avg,
+       reading_time_estimate, boilerplate_ratio, unique_word_ratio,
+       sentence_count, avg_sentence_length, content_block_count,
+       media_density, sibling_repeat_count.
+  4. content_section_count now reads from content_block_count (no logic duplication).
+  5. Composite scores updated to use new features.
+  6. extraction_version bumped to 7.0.
 """
 
 from __future__ import annotations
@@ -14,7 +22,6 @@ from __future__ import annotations
 import json
 import math
 import re
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -26,7 +33,7 @@ logger = get_logger("extractor")
 cfg = load_config()
 EX_CFG = cfg["extraction"]
 
-# Keyword Sets 
+# ── Keyword Sets ───────────────────────────────────────────────────────────────
 LIST_CUE_WORDS = {
     "results", "listings", "search", "browse", "catalog", "catalogue",
     "index", "directory", "archive", "collection", "products", "items",
@@ -59,6 +66,13 @@ DETAIL_SCHEMA_TYPES = {
     "howto", "faqpage", "profilepage",
 }
 
+BOILERPLATE_PHRASES = {
+    "privacy policy", "terms of service", "cookie policy", "all rights reserved",
+    "contact us", "about us", "sign in", "log in", "sign up", "register",
+    "subscribe", "follow us", "share this", "skip to content", "back to top",
+    "home", "sitemap", "help center", "faq", "advertise", "careers",
+}
+
 
 def _safe_ratio(num: float, den: float, default: float = 0.0) -> float:
     return round(num / den, 6) if den > 0 else default
@@ -68,7 +82,9 @@ def _safe_log(x: float) -> float:
     return round(math.log1p(max(x, 0)), 6)
 
 
-# PILLAR 1 – STRUCTURAL
+# ══════════════════════════════════════════════════════════════════════════════
+# PILLAR 1 — STRUCTURAL (28 features)
+# ══════════════════════════════════════════════════════════════════════════════
 def _structural_features(soup: BeautifulSoup, body_text: str) -> Dict[str, Any]:
     f: Dict[str, Any] = {}
 
@@ -84,34 +100,69 @@ def _structural_features(soup: BeautifulSoup, body_text: str) -> Dict[str, Any]:
         f["tag_article_count"], f["tag_section_count"] + 1
     )
 
+    # DOM max depth (how deeply nested is the page)
     def _max_depth(el: Tag, depth: int = 0) -> int:
         children = [c for c in el.children if isinstance(c, Tag)]
         if not children:
             return depth
         return max(_max_depth(c, depth + 1) for c in children[:20])
 
+    # DOM average nesting depth — NEW from mentor spec
+    def _collect_depths(el: Tag, depth: int = 0) -> List[int]:
+        result = [depth]
+        for c in el.children:
+            if isinstance(c, Tag):
+                result.extend(_collect_depths(c, depth + 1))
+        return result
+
     try:
         body = soup.find("body")
-        f["dom_max_depth"] = _max_depth(body, 0) if body else 0
+        if body:
+            f["dom_max_depth"] = _max_depth(body, 0)
+            all_depths = _collect_depths(body, 0)
+            f["dom_nesting_avg"] = round(sum(all_depths) / max(len(all_depths), 1), 4)
+        else:
+            f["dom_max_depth"] = 0
+            f["dom_nesting_avg"] = 0.0
     except Exception:
         f["dom_max_depth"] = 0
+        f["dom_nesting_avg"] = 0.0
 
     f["has_data_table"] = int(
         bool(soup.find("table")) and len(soup.find_all("td")) > 6
     )
 
-    grid_pattern = re.compile(r"\b(grid|card|tile|product[-_]?item|result[-_]?item|"
-                               r"listing[-_]?item|job[-_]?item|post[-_]?item|"
-                               r"item[-_]?card|product[-_]?card)\b", re.I)
-    grid_matches = len([t for t in soup.find_all(class_=True)
-                        if any(grid_pattern.search(c) for c in t.get("class", []))])
+    # Strict product/listing CSS class names — pillar 1 owns this
+    # (does NOT use generic "grid"/"card" — those are in _listing_features)
+    grid_pattern = re.compile(
+        r"\b(product[-_]?item|result[-_]?item|listing[-_]?item|"
+        r"job[-_]?item|post[-_]?item|item[-_]?card|product[-_]?card)\b", re.I
+    )
+    grid_matches = len([
+        t for t in soup.find_all(class_=True)
+        if any(grid_pattern.search(c) for c in t.get("class", []))
+    ])
     f["grid_class_count"] = min(grid_matches, 200)
     f["has_grid_layout"] = int(grid_matches >= 3)
+
+    # Sibling repeat count — NEW from mentor spec (sibling_repeat_count)
+    sibling_repeat_count = 0
+    for container in soup.find_all(["ul", "ol", "div", "section"])[:150]:
+        children = [c for c in container.children if isinstance(c, Tag)]
+        if len(children) >= 4:
+            counts: Dict[str, int] = {}
+            for c in children:
+                counts[c.name] = counts.get(c.name, 0) + 1
+            if max(counts.values()) >= 4:
+                sibling_repeat_count += 1
+    f["sibling_repeat_count"] = min(sibling_repeat_count, 50)
 
     return f
 
 
-# PILLAR 2 – LINK FEATURES
+# ══════════════════════════════════════════════════════════════════════════════
+# PILLAR 2 — LINK FEATURES (11 features)
+# ══════════════════════════════════════════════════════════════════════════════
 def _link_features(soup: BeautifulSoup, url: str) -> Dict[str, Any]:
     f: Dict[str, Any] = {}
     domain = urlparse(url).netloc
@@ -154,9 +205,17 @@ def _link_features(soup: BeautifulSoup, url: str) -> Dict[str, Any]:
     word_count = max(len(body_text.split()), 1)
     f["link_to_word_ratio"] = _safe_ratio(total, word_count)
 
+    # Internal anchor links (#fragment links) — strong TOC/detail-page signal
+    internal_anchors = [a for a in all_links if a.get("href", "").startswith("#")]
+    f["internal_anchor_links"] = len(internal_anchors)
+    f["has_internal_anchors"] = int(len(internal_anchors) >= 3)
+
     return f
 
-# PILLAR 3 – CONTENT FEATURES
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PILLAR 3 — CONTENT FEATURES (18 features, incl. mentor-spec additions)
+# ══════════════════════════════════════════════════════════════════════════════
 def _content_features(soup: BeautifulSoup) -> Dict[str, Any]:
     f: Dict[str, Any] = {}
 
@@ -166,6 +225,10 @@ def _content_features(soup: BeautifulSoup) -> Dict[str, Any]:
     f["word_count"] = word_count
     f["log_word_count"] = _safe_log(word_count)
     f["char_count"] = len(body_text)
+
+    # NEW — unique_word_ratio: detail pages use richer vocabulary
+    unique_words = len(set(w.lower() for w in words if w.isalpha()))
+    f["unique_word_ratio"] = _safe_ratio(unique_words, max(word_count, 1))
 
     for h in ["h1", "h2", "h3", "h4"]:
         f[f"{h}_count"] = len(soup.find_all(h))
@@ -180,15 +243,35 @@ def _content_features(soup: BeautifulSoup) -> Dict[str, Any]:
     para_texts = [p.get_text(strip=True) for p in paras if len(p.get_text(strip=True)) > 40]
     f["rich_paragraph_count"] = len(para_texts)
     f["log_rich_paragraph_count"] = _safe_log(len(para_texts))
-
     avg_para_len = sum(len(t) for t in para_texts) / max(len(para_texts), 1)
     f["avg_paragraph_length"] = round(avg_para_len, 2)
+
+    # NEW — sentence_count and avg_sentence_length
+    sentence_count = max(len(re.findall(r'[.!?]+', body_text)), 1)
+    f["sentence_count"] = sentence_count
+    f["avg_sentence_length"] = round(word_count / sentence_count, 4)
+
+    # NEW — reading_time_estimate (minutes at 200 wpm)
+    f["reading_time_estimate"] = round(word_count / 200.0, 4)
 
     content_els = soup.find_all(["article", "main", "section"])
     deep_content = [e for e in content_els if len(e.get_text(strip=True)) > 200]
     f["deep_content_blocks"] = len(deep_content)
     f["has_main_content_element"] = int(bool(soup.find("main")))
     f["has_article_element"] = int(bool(soup.find("article")))
+
+    # NEW — content_block_count: top-level meaningful sections
+    main_el = soup.find("main") or soup.find("body")
+    if main_el:
+        top_sections = [
+            c for c in main_el.children
+            if isinstance(c, Tag)
+            and c.name in {"section", "div", "article"}
+            and len(c.get_text(strip=True)) > 50
+        ]
+        f["content_block_count"] = min(len(top_sections), 30)
+    else:
+        f["content_block_count"] = 0
 
     all_divs = soup.find_all(["div", "article", "section", "main"])
     if all_divs:
@@ -198,9 +281,22 @@ def _content_features(soup: BeautifulSoup) -> Dict[str, Any]:
     else:
         f["text_concentration_ratio"] = 0.0
 
+    # NEW — content_density and text_to_html_ratio (from mentor spec)
+    raw_html_len = len(str(soup))
+    f["content_density"] = _safe_ratio(len(body_text), max(raw_html_len, 1))
+    f["text_to_html_ratio"] = f["content_density"]  # same metric, two names
+
+    # NEW — boilerplate_ratio: fraction of text that is nav/footer boilerplate
+    body_lower = body_text.lower()
+    boilerplate_chars = sum(len(p) for p in BOILERPLATE_PHRASES if p in body_lower)
+    f["boilerplate_ratio"] = _safe_ratio(boilerplate_chars, max(len(body_text), 1))
+
     return f
 
-# PILLAR 4 – MEDIA FEATURES
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PILLAR 4 — MEDIA FEATURES (10 features)
+# ══════════════════════════════════════════════════════════════════════════════
 def _media_features(soup: BeautifulSoup) -> Dict[str, Any]:
     f: Dict[str, Any] = {}
 
@@ -215,19 +311,28 @@ def _media_features(soup: BeautifulSoup) -> Dict[str, Any]:
     gallery_pattern = re.compile(
         r"\b(gallery|carousel|slider|swiper|thumbnail|thumb|product[-_]?image)\b", re.I
     )
-    gallery_count = len([i for i in imgs
-                         if gallery_pattern.search(str(i.get("class", [])) + str(i.get("id", "")))])
+    gallery_count = len([
+        i for i in imgs
+        if gallery_pattern.search(str(i.get("class", [])) + str(i.get("id", "")))
+    ])
     f["gallery_image_count"] = gallery_count
     f["has_image_gallery"] = int(gallery_count >= 3)
     f["has_video"] = int(bool(soup.find(["video", "iframe"])))
     f["figure_count"] = len(soup.find_all("figure"))
     f["figcaption_count"] = len(soup.find_all("figcaption"))
 
+    # NEW — media_density: media items per content block
+    content_blocks = max(len(soup.find_all(["article", "section", "main"])), 1)
+    f["media_density"] = _safe_ratio(len(imgs) + f["has_video"], content_blocks)
+
     return f
 
 
-
-# PILLAR 5 – LISTING-SPECIFIC FEATURES
+# ══════════════════════════════════════════════════════════════════════════════
+# PILLAR 5 — LISTING-SPECIFIC FEATURES (13 features)
+# BUG FIX: does NOT recompute grid_class_count, has_grid_layout,
+#          total_links, or anchor_text_diversity — those are owned by pillars 1 & 2.
+# ══════════════════════════════════════════════════════════════════════════════
 def _listing_features(soup: BeautifulSoup, body_text: str) -> Dict[str, Any]:
     f: Dict[str, Any] = {}
     lower_text = body_text.lower()
@@ -243,7 +348,6 @@ def _listing_features(soup: BeautifulSoup, body_text: str) -> Dict[str, Any]:
         bool(soup.find(attrs={"aria-label": re.compile(r"pagination", re.I)}))
     )
 
-    # Enhanced pagination: count page number links
     page_links = soup.find_all("a", href=re.compile(r"[?&]page=\d+", re.I))
     f["page_number_links"] = len(page_links)
     f["has_page_param_links"] = int(len(page_links) >= 2)
@@ -265,11 +369,10 @@ def _listing_features(soup: BeautifulSoup, body_text: str) -> Dict[str, Any]:
     for container in soup.find_all(["ul", "ol", "div", "section"]):
         children = [c for c in container.children if isinstance(c, Tag)]
         if len(children) >= 4:
-            tag_counts = {}
+            tag_counts: Dict[str, int] = {}
             for c in children:
                 tag_counts[c.name] = tag_counts.get(c.name, 0) + 1
-            dominant = max(tag_counts.values())
-            if dominant >= 4:
+            if max(tag_counts.values()) >= 4:
                 repeated_blocks += 1
 
     f["repeated_sibling_containers"] = min(repeated_blocks, 50)
@@ -278,28 +381,19 @@ def _listing_features(soup: BeautifulSoup, body_text: str) -> Dict[str, Any]:
         len(soup.find_all("input", attrs={"type": "checkbox"})) >= 3
     )
 
-    # Card/grid pattern detection
-    card_elements = soup.find_all(class_=re.compile(r"\b(card|item|tile|product|listing|result)\b", re.I))
+    card_elements = soup.find_all(
+        class_=re.compile(r"\b(card|item|tile|product|listing|result)\b", re.I)
+    )
     f["card_count"] = min(len(card_elements), 100)
     f["has_card_elements"] = int(len(card_elements) >= 3)
 
-    grid_classes = sum(1 for el in soup.find_all(class_=True)
-                      if re.search(r"\b(grid|flex|col|row|container)\b", " ".join(el.get("class", [])), re.I))
-    f["grid_class_count"] = min(grid_classes, 50)
-    f["has_grid_layout"] = int(grid_classes >= 3)
-
-    # Link diversity features
-    all_links = soup.find_all("a", href=True)
-    f["total_links"] = len(all_links)
-    link_texts = [a.get_text(strip=True) for a in all_links if a.get_text(strip=True)]
-    unique_link_texts = len(set(link_texts)) if link_texts else 0
-    f["anchor_text_diversity"] = _safe_ratio(unique_link_texts, len(link_texts)) if link_texts else 0
-    f["links_per_1k_words"] = _safe_ratio(len(all_links) * 1000, max(len(lower_text.split()), 1))
-
-    breadcrumb = soup.find(
-        [True],
-        attrs={"class": re.compile(r"breadcrumb", re.I)}
+    # links_per_1k_words — listing pages are link-dense
+    all_links_count = len(soup.find_all("a", href=True))
+    f["links_per_1k_words"] = _safe_ratio(
+        all_links_count * 1000, max(len(lower_text.split()), 1)
     )
+
+    breadcrumb = soup.find([True], attrs={"class": re.compile(r"breadcrumb", re.I)})
     if not breadcrumb:
         breadcrumb = soup.find(attrs={"aria-label": re.compile(r"breadcrumb", re.I)})
     if breadcrumb:
@@ -307,13 +401,14 @@ def _listing_features(soup: BeautifulSoup, body_text: str) -> Dict[str, Any]:
         f["breadcrumb_depth"] = len(crumbs)
     else:
         f["breadcrumb_depth"] = 0
-
     f["has_breadcrumb"] = int(f["breadcrumb_depth"] > 0)
 
     return f
 
 
-# PILLAR 6 – DETAIL-SPECIFIC FEATURES
+# ══════════════════════════════════════════════════════════════════════════════
+# PILLAR 6 — DETAIL-SPECIFIC FEATURES (20 features)
+# ══════════════════════════════════════════════════════════════════════════════
 def _detail_features(soup: BeautifulSoup, body_text: str, url: str = "") -> Dict[str, Any]:
     f: Dict[str, Any] = {}
     lower_text = body_text.lower()
@@ -333,10 +428,9 @@ def _detail_features(soup: BeautifulSoup, body_text: str, url: str = "") -> Dict
     )
     f["has_buy_cta"] = int(bool(buy_pattern.search(lower_text)))
 
-    author_pattern = re.compile(
-        r"\b(by|author|written\s+by|posted\s+by|reviewed\s+by)\b", re.I
-    )
-    f["has_author"] = int(bool(author_pattern.search(lower_text)))
+    f["has_author"] = int(bool(re.search(
+        r"\b(by|author|written\s+by|posted\s+by|reviewed\s+by)\b", lower_text
+    )))
 
     date_pattern = re.compile(
         r"\b(published|posted|updated|last\s+modified|date)\b.*"
@@ -349,11 +443,10 @@ def _detail_features(soup: BeautifulSoup, body_text: str, url: str = "") -> Dict
         soup.find(attrs={"datetime": True})
     ))
 
-    rating_pattern = re.compile(
+    f["has_rating"] = int(bool(re.search(
         r"\b(\d+(\.\d+)?)\s*(out of|\/)\s*\d+\b|\b(stars?|rating|reviews?)\b",
-        re.I
-    )
-    f["has_rating"] = int(bool(rating_pattern.search(lower_text)))
+        lower_text
+    )))
 
     toc_pattern = re.compile(r"table\s+of\s+contents|toc|contents", re.I)
     f["has_toc"] = int(
@@ -361,11 +454,6 @@ def _detail_features(soup: BeautifulSoup, body_text: str, url: str = "") -> Dict
         bool(soup.find(id=toc_pattern)) or
         bool(toc_pattern.search(lower_text[:500]))
     )
-
-    anchor_links = [a for a in soup.find_all("a", href=True)
-                    if a["href"].startswith("#")]
-    f["internal_anchor_links"] = len(anchor_links)
-    f["has_internal_anchors"] = int(len(anchor_links) >= 3)
 
     spec_pattern = re.compile(
         r"\b(specification|spec|features?|dimensions?|weight|material|"
@@ -377,16 +465,15 @@ def _detail_features(soup: BeautifulSoup, body_text: str, url: str = "") -> Dict
         spec_pattern.search(lower_text[:3000])
     ))
 
-    share_pattern = re.compile(r"\b(share|tweet|facebook|linkedin|whatsapp)\b", re.I)
-    f["has_share_buttons"] = int(bool(share_pattern.search(lower_text)))
-
-    comment_pattern = re.compile(r"\b(comment|reply|discussion|disqus|livefyre)\b", re.I)
-    f["has_comments_section"] = int(bool(comment_pattern.search(lower_text)))
-
-    related_pattern = re.compile(
-        r"\b(related|similar|you\s+may\s+also|recommended|people\s+also)\b", re.I
-    )
-    f["has_related_section"] = int(bool(related_pattern.search(lower_text)))
+    f["has_share_buttons"] = int(bool(re.search(
+        r"\b(share|tweet|facebook|linkedin|whatsapp)\b", lower_text
+    )))
+    f["has_comments_section"] = int(bool(re.search(
+        r"\b(comment|reply|discussion|disqus|livefyre)\b", lower_text
+    )))
+    f["has_related_section"] = int(bool(re.search(
+        r"\b(related|similar|you\s+may\s+also|recommended|people\s+also)\b", lower_text
+    )))
 
     og_type_raw = (soup.find("meta", property="og:type") or {}).get("content", "").lower()
     f["og_type_is_video"] = int("video" in og_type_raw)
@@ -408,20 +495,21 @@ def _detail_features(soup: BeautifulSoup, body_text: str, url: str = "") -> Dict
     )
     f["url_signals_single_item"] = int(bool(single_item_url_pattern.search(url)))
 
-    engagement_pattern = re.compile(
+    f["has_engagement_metrics"] = int(bool(re.search(
         r"\b(\d[\d,.]*[KMBk]?)\s*(views?|likes?|dislikes?|subscribers?|followers?|watches?)\b",
-        re.I
-    )
-    f["has_engagement_metrics"] = int(bool(engagement_pattern.search(lower_text)))
+        lower_text
+    )))
 
     return f
 
-# PILLAR 7 – INTERACTION FEATURES
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PILLAR 7 — INTERACTION FEATURES (7 features)
+# ══════════════════════════════════════════════════════════════════════════════
 def _interaction_features(soup: BeautifulSoup) -> Dict[str, Any]:
     f: Dict[str, Any] = {}
 
-    forms = soup.find_all("form")
-    f["form_count"] = len(forms)
+    f["form_count"] = len(soup.find_all("form"))
     f["has_search_form"] = int(bool(
         soup.find("input", attrs={"type": "search"}) or
         soup.find("input", attrs={"placeholder": re.compile(r"search", re.I)})
@@ -441,7 +529,9 @@ def _interaction_features(soup: BeautifulSoup) -> Dict[str, Any]:
     return f
 
 
-# PILLAR 8 – METADATA / SEO FEATURES
+# ══════════════════════════════════════════════════════════════════════════════
+# PILLAR 8 — METADATA / SEO FEATURES (11 features)
+# ══════════════════════════════════════════════════════════════════════════════
 def _metadata_features(soup: BeautifulSoup, url: str) -> Dict[str, Any]:
     f: Dict[str, Any] = {}
 
@@ -489,7 +579,9 @@ def _metadata_features(soup: BeautifulSoup, url: str) -> Dict[str, Any]:
     return f
 
 
-# PILLAR 9 – SEMANTIC / NLP FEATURES
+# ══════════════════════════════════════════════════════════════════════════════
+# PILLAR 9 — SEMANTIC / NLP FEATURES (11 features)
+# ══════════════════════════════════════════════════════════════════════════════
 def _semantic_features(body_text: str, title: str) -> Dict[str, Any]:
     f: Dict[str, Any] = {}
     sample = (title + " " + body_text[: EX_CFG["max_text_sample"]]).lower()
@@ -516,36 +608,25 @@ def _semantic_features(body_text: str, title: str) -> Dict[str, Any]:
     return f
 
 
-
-# PILLAR 10 – URL PATTERN FEATURES
+# ══════════════════════════════════════════════════════════════════════════════
+# PILLAR 10 — URL PATTERN FEATURES (13 features)
+# ══════════════════════════════════════════════════════════════════════════════
 def _url_features(url: str) -> Dict[str, Any]:
-    """
-    v6: url_path_depth cap lowered 5→3.
-    SHAP showed depth at rank 1 (0.667) — model was learning URL shape
-    instead of page content. Cap at 3 forces content/DOM features to matter.
-
-    url_has_query_params kept as binary but renamed to url_has_any_param
-    to reduce its conceptual weight. The individual param-type features
-    (url_has_search_param, url_has_filter_param) carry the real signal.
-
-    url_depth_normalized added: 0.0–1.0 over 3 levels, smooth hint only.
-    """
     f: Dict[str, Any] = {}
     parsed = urlparse(url)
     path   = parsed.path.lower()
     query  = parsed.query.lower()
     path_parts = [p for p in path.split("/") if p]
 
-    # ── CHANGED: cap at 3 (was 5) to reduce SHAP dominance ──
+    # Capped at 3 to prevent SHAP dominance (was dominating at 0.405 importance)
     raw_depth = len(path_parts)
-    f["url_path_depth"]           = min(raw_depth, 3)
-    f["url_depth_normalized"]     = round(min(raw_depth, 3) / 3.0, 4)  # 0.0–1.0
+    f["url_path_depth"]        = min(raw_depth, 3)
+    f["url_depth_normalized"]  = round(min(raw_depth, 3) / 3.0, 4)
 
-    # Keep binary query param signal but reduce its weight by keeping it simple
-    f["url_has_any_param"]        = int(bool(query))   
-    f["url_has_query_params"]     = int(bool(query))   # kept for backward compat in composite
-    f["url_query_param_count"]    = len(query.split("&")) if query else 0
-    f["url_has_numeric_id"]       = int(bool(re.search(r"/\d{3,}", path)))
+    f["url_has_any_param"]     = int(bool(query))
+    f["url_has_query_params"]  = int(bool(query))
+    f["url_query_param_count"] = len(query.split("&")) if query else 0
+    f["url_has_numeric_id"]    = int(bool(re.search(r"/\d{3,}", path)))
 
     slug_parts = [p for p in path_parts if re.match(r"[a-z]+-[a-z]+-[a-z]", p)]
     f["url_has_long_slug"] = int(len(slug_parts) >= 1)
@@ -578,12 +659,15 @@ def _url_features(url: str) -> Dict[str, Any]:
         "page" in params or bool(re.search(r"[?&]page=\d+", url.lower()))
     )
 
-    # Domain-specific features
     domain = parsed.netloc.lower()
-    job_board_domains = {"lever.co", "greenhouse.io", "workable.com", "smartrecruiters.com",
-                        "applytojob.com", "bamboohr.com", "jobs.lever.co", "boards.greenhouse.io"}
-    api_doc_domains = {"docs.python.org", "developer.mozilla.org", "docs.aws.amazon.com",
-                      "github.com/docs", "official-docs"}
+    job_board_domains = {
+        "lever.co", "greenhouse.io", "workable.com", "smartrecruiters.com",
+        "applytojob.com", "bamboohr.com", "jobs.lever.co", "boards.greenhouse.io"
+    }
+    api_doc_domains = {
+        "docs.python.org", "developer.mozilla.org", "docs.aws.amazon.com",
+        "github.com/docs", "official-docs"
+    }
     f["is_job_board_domain"] = int(bool(any(d in domain for d in job_board_domains)))
     f["is_api_doc_domain"]   = int(bool(any(d in domain for d in api_doc_domains)))
     f["has_jobs_in_path"]    = int("jobs" in path or "careers" in path)
@@ -591,17 +675,15 @@ def _url_features(url: str) -> Dict[str, Any]:
     return f
 
 
-# COMPOSITE SIGNALS
+# ══════════════════════════════════════════════════════════════════════════════
+# COMPOSITE SIGNALS (4 features)
+# Updated v7: uses sibling_repeat_count, reading_time_estimate,
+#             unique_word_ratio, content_density
+# ══════════════════════════════════════════════════════════════════════════════
 def _composite_features(all_features: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    v6: composite_listing_score now includes pillar-13 modern-list signals.
-    Previously those features existed but never fed into the composite, so
-    the model was ignoring them. Now they contribute directly.
-    """
     f: Dict[str, Any] = {}
     g = all_features
 
-    #  Listing score 
     f["composite_listing_score"] = round(
         g.get("has_pagination", 0) * 3
         + g.get("has_filter_ui", 0) * 2
@@ -615,17 +697,17 @@ def _composite_features(all_features: Dict[str, Any]) -> Dict[str, Any]:
         + g.get("url_has_page_param", 0)
         + g.get("title_has_list_cue", 0)
         + g.get("anchor_text_diversity", 0) * 1.5
-        + g.get("high_link_no_pagination", 0) * 2      
-        + g.get("browse_vocab_signal", 0) * 1.5        
-        + g.get("academic_listing_signal", 0) * 2      
-        + g.get("is_job_listing_page", 0) * 2          
-        + g.get("article_sibling_containers", 0) * 0.3  
-        + g.get("is_browse_path", 0) * 1.5             
-        + g.get("has_many_years", 0) * 0.5,            
+        + g.get("high_link_no_pagination", 0) * 2
+        + g.get("browse_vocab_signal", 0) * 1.5
+        + g.get("academic_listing_signal", 0) * 2
+        + g.get("is_job_listing_page", 0) * 2
+        + g.get("article_sibling_containers", 0) * 0.3
+        + g.get("is_browse_path", 0) * 1.5
+        + g.get("has_many_years", 0) * 0.5
+        + g.get("sibling_repeat_count", 0) * 0.1,
         4
     )
 
-    # Detail score 
     f["composite_detail_score"] = round(
         g.get("has_buy_cta", 0) * 3
         + g.get("has_price", 0) * 2
@@ -648,7 +730,9 @@ def _composite_features(all_features: Dict[str, Any]) -> Dict[str, Any]:
         + g.get("url_signals_single_item", 0) * 2
         + g.get("has_engagement_metrics", 0)
         + (2 if g.get("avg_paragraph_length", 0) > 200 else
-           1 if g.get("avg_paragraph_length", 0) > 100 else 0),
+           1 if g.get("avg_paragraph_length", 0) > 100 else 0)
+        + (1 if g.get("reading_time_estimate", 0) > 3 else 0)
+        + (1 if g.get("unique_word_ratio", 0) > 0.5 else 0),
         4
     )
 
@@ -658,11 +742,11 @@ def _composite_features(all_features: Dict[str, Any]) -> Dict[str, Any]:
         max(0, 5 - abs(ls - ds)) * 0.5
         + g.get("og_type_is_website", 0)
         + g.get("has_login_form", 0)
-        + g.get("url_is_root", 0) * 2,
+        + g.get("url_is_root", 0) * 2
+        + (1 if g.get("content_density", 0) < 0.05 else 0),
         4
     )
 
-    # Reduces the risk of URL alone driving a list prediction.
     url_says_list = int(
         g.get("url_list_token_match", 0) == 1 or
         g.get("url_has_search_param", 0) == 1 or
@@ -679,8 +763,9 @@ def _composite_features(all_features: Dict[str, Any]) -> Dict[str, Any]:
     return f
 
 
-
+# ══════════════════════════════════════════════════════════════════════════════
 # PILLAR 11 — SINGLE-ENTITY DETECTION + CONTENT-STRUCTURE ALIGNMENT
+# ══════════════════════════════════════════════════════════════════════════════
 def _single_entity_features(
     soup: BeautifulSoup,
     body_text: str,
@@ -690,7 +775,6 @@ def _single_entity_features(
     f: Dict[str, Any] = {}
     lower = body_text.lower()
     words = lower.split()
-    total_words = max(len(words), 1)
     parsed = urlparse(url)
     path   = parsed.path.lower()
 
@@ -802,21 +886,24 @@ def _single_entity_features(
 
     pre_hint = 0
     for t in schema_types_raw:
-        if t in {"searchresultspage","itemlist","collectionpage","productcollection",
-                 "offerscatalog","breadcrumblist","dataset","datafeed"}:
-            pre_hint = 1; break
-        if t in {"product","productgroup","article","newsarticle","blogposting",
-                 "recipe","jobposting","event","movie","book","person","organization",
-                 "localbusiness","hotel","restaurant","howto","faqpage","profilepage",
-                 "videoobject","podcastepisode","course","vehicle","softwareapplication"}:
-            pre_hint = 2; break
+        if t in {"searchresultspage", "itemlist", "collectionpage", "productcollection",
+                 "offerscatalog", "breadcrumblist", "dataset", "datafeed"}:
+            pre_hint = 1
+            break
+        if t in {"product", "productgroup", "article", "newsarticle", "blogposting",
+                 "recipe", "jobposting", "event", "movie", "book", "person", "organization",
+                 "localbusiness", "hotel", "restaurant", "howto", "faqpage", "profilepage",
+                 "videoobject", "podcastepisode", "course", "vehicle", "softwareapplication"}:
+            pre_hint = 2
+            break
     f["pre_hint_schema"]     = pre_hint
     f["pre_hint_has_schema"] = int(pre_hint > 0)
 
     og = (soup.find("meta", property="og:type") or {}).get("content", "").lower()
-    f["og_numeric"] = (2 if any(og.startswith(p) for p in
-                                ["article","video.","music.","product","profile","book"])
-                       else (1 if og in {"website","webpage",""} else 0))
+    f["og_numeric"] = (
+        2 if any(og.startswith(p) for p in ["article", "video.", "music.", "product", "profile", "book"])
+        else (1 if og in {"website", "webpage", ""} else 0)
+    )
 
     f["event_listing_signals"] = sum([
         int(bool(re.search(r"\b(events?\s+in|upcoming\s+events?|all\s+events?|browse\s+events?)\b", lower))),
@@ -850,7 +937,9 @@ def _single_entity_features(
     return f
 
 
-# PILLAR 12 — LANDING PAGE + SEO INTENT + CONVERTED RULE SIGNALS
+# ══════════════════════════════════════════════════════════════════════════════
+# PILLAR 12 — LANDING PAGE + SEO INTENT + RULE SIGNALS
+# ══════════════════════════════════════════════════════════════════════════════
 def _pillar12_features(
     soup: BeautifulSoup,
     body_text: str,
@@ -862,7 +951,6 @@ def _pillar12_features(
     parsed = urlparse(url)
     path = parsed.path.strip("/").lower()
 
-    # 1. Landing page / homepage score 
     cta_signals = sum([
         bool(re.search(r"\bget\s+started\b", lower)),
         bool(re.search(r"\bsign\s+up\b", lower)),
@@ -939,24 +1027,13 @@ def _pillar12_features(
         4
     )
 
-    # 2. Navigation density ratio 
     total_links = max(all_feats.get("total_links", 1), 1)
     nav_links   = all_feats.get("nav_links", 0)
     f["navigation_density_ratio"] = _safe_ratio(nav_links, total_links)
 
-    # 3. Content section count 
-    main_el = soup.find("main") or soup.find("body")
-    if main_el:
-        top_sections = [
-            c for c in main_el.children
-            if isinstance(c, Tag) and c.name in {"section", "div", "article"}
-            and len(c.get_text(strip=True)) > 50
-        ]
-        f["content_section_count"] = min(len(top_sections), 20)
-    else:
-        f["content_section_count"] = 0
+    # FIX: reads content_block_count directly, no duplicate logic
+    f["content_section_count"] = all_feats.get("content_block_count", 0)
 
-    # 4. Developer-declared pagination / feed as ML features 
     has_rel_next = 0
     has_rel_prev = 0
     has_rss      = 0
@@ -975,7 +1052,6 @@ def _pillar12_features(
     f["rel_has_next"]  = has_rel_next
     f["rel_has_prev"]  = has_rel_prev
     f["has_rss_feed"]  = has_rss
-
 
     has_price_signal = bool(re.search(
         r"(\$|€|£|¥|₹)\s*[\d,]+|[\d,]+\s*(\$|€|£|¥|₹)", lower
@@ -1003,10 +1079,8 @@ def _pillar12_features(
     ))
     f["job_posting_signal_combined"] = int(has_job_intent and has_job_vocab)
 
-    # Title intent signals
     title_tag = soup.find("title")
     title_lower = title_tag.string.lower() if title_tag and title_tag.string else ""
-
     listing_title_words = {
         "results", "search", "browse", "catalog", "category", "directory",
         "listings", "products", "jobs", "hotels", "properties", "recipes",
@@ -1019,7 +1093,6 @@ def _pillar12_features(
     f["title_signals_listing"] = int(any(w in title_lower for w in listing_title_words))
     f["title_signals_detail"]  = int(any(w in title_lower for w in detail_title_words))
 
-    # Others-specific path and content signals
     f["others_path_signal"] = int(bool(re.search(
         r"/(about|contact|faq|help|support|privacy|terms|legal|"
         r"careers|team|press|sitemap|login|signup|register|"
@@ -1036,7 +1109,9 @@ def _pillar12_features(
     return f
 
 
+# ══════════════════════════════════════════════════════════════════════════════
 # PILLAR 13 — MODERN LIST PATTERNS + BROWSE/DISCOVER DETECTION
+# ══════════════════════════════════════════════════════════════════════════════
 def _pillar13_features(
     soup: BeautifulSoup,
     body_text: str,
@@ -1050,7 +1125,6 @@ def _pillar13_features(
     query = parsed.query.lower()
     domain = parsed.netloc.lower()
 
-    # 1. Browse / discover / curated listing page 
     browse_path = int(bool(re.search(
         r"/(categories|category|discover|browse|explore|"
         r"exhibitions?|collections?|shows?|events?|archive|"
@@ -1065,7 +1139,6 @@ def _pillar13_features(
         lower
     )))
 
-    # 2. Academic / government publication listing 
     year_mentions = len(re.findall(r"\b(19|20)\d{2}\b", lower))
     f["year_mention_count"] = min(year_mentions, 50)
     f["has_many_years"] = int(year_mentions >= 5)
@@ -1076,9 +1149,7 @@ def _pillar13_features(
         lower
     )))
 
-    f["is_academic_domain"] = int(bool(re.search(
-        r"\.(edu|ac\.uk|gov|org)$", domain
-    )))
+    f["is_academic_domain"] = int(bool(re.search(r"\.(edu|ac\.uk|gov|org)$", domain)))
 
     f["academic_listing_signal"] = int(
         (f["is_academic_domain"] or "arxiv" in domain or "pubmed" in domain) and
@@ -1086,11 +1157,9 @@ def _pillar13_features(
         year_mentions >= 3
     )
 
-    # 3. Search results without classic ?q= param 
     f["has_search_in_path"] = int(bool(re.search(r"/(search|results?|find)/", path)))
     f["has_type_query_param"] = int("type=" in query or "category=" in query)
 
-    # 4. Job listing page 
     job_listing_vocab = sum([
         bool(re.search(r"\b(full[- ]time|part[- ]time|remote|hybrid|on[- ]site)\b", lower)),
         bool(re.search(r"\b(\d+[\d,]*\s*(jobs?|positions?|openings?|roles?|vacancies))\b", lower)),
@@ -1100,7 +1169,6 @@ def _pillar13_features(
     f["job_listing_vocab"] = job_listing_vocab
     f["is_job_listing_page"] = int(job_listing_vocab >= 2)
 
-    # 5. Link-to-item ratio for no-pagination lists 
     content_links = all_feats.get("content_links", 0)
     has_pagination = all_feats.get("has_pagination", 0)
     anchor_diversity = all_feats.get("anchor_text_diversity", 0.0)
@@ -1110,7 +1178,6 @@ def _pillar13_features(
         anchor_diversity > 0.55
     )
 
-    # 6. Grid of homogeneous cards without product CSS classes 
     article_siblings = 0
     for container in soup.find_all(["ul", "div", "section"])[:100]:
         articles = container.find_all("article", recursive=False)
@@ -1119,7 +1186,6 @@ def _pillar13_features(
     f["article_sibling_containers"] = min(article_siblings, 20)
     f["has_article_grid"] = int(article_siblings >= 1)
 
-    # 7. Others-signal noise correction 
     footer_el = soup.find("footer")
     nav_el = soup.find("nav")
     footer_nav_text = ""
@@ -1154,7 +1220,10 @@ def _pillar13_features(
 
     return f
 
+
+# ══════════════════════════════════════════════════════════════════════════════
 # MAIN ENTRY POINT
+# ══════════════════════════════════════════════════════════════════════════════
 def extract_features(
     html: str,
     url: str,
@@ -1199,7 +1268,7 @@ def extract_features(
     features["_url"]                = url
     features["_title"]              = title
     features["_body_text_length"]   = len(body_text)
-    features["_extraction_version"] = "6.0"
+    features["_extraction_version"] = "7.0"
 
     return features
 
